@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Core Palette */
+    --midnight: #071C3B;
+    --midnight-2: #0D2240;
+    --midnight-3: #112B50;
+    --midnight-4: #163461;
+    --cyan: #00CFFF;
+    --cyan-soft: #00C4DC;
+    --cyan-dim: rgba(0, 207, 255, .12);
+    --cyan-glow: rgba(0, 207, 255, .06);
+    --success: #06D6A0;
+    --success-dim: rgba(6, 214, 160, .1);
+    --danger: #EF476F;
+    --danger-dim: rgba(239, 71, 111, .1);
+    --warning: #FFD166;
+    --warning-dim: rgba(255, 209, 102, .1);
+    --purple: #7C3AED;
+    --indigo: #6366F1;
+    --orange: #F97316;
+
+    /* Surface */
+    --bg: #F4F7FC;
+    --bg-2: #E5EBF2;
+    --card: #FFFFFF;
+    --card-2: #F8FAFD;
+
+    /* Text */
+    --text: #1A2B3C;
+    --text-2: #4A5F72;
+    --text-3: #8A9BB0;
+    --text-4: #B8C6D6;
+
+    /* Border */
+    --border: rgba(10, 25, 47, .07);
+    --border-2: rgba(10, 25, 47, .12);
+
+    /* Layout */
+    --sidebar-w: 260px;
+    --sidebar-mini: 68px;
+    --topbar-h: 58px;
+  }
+
+  /* Support for Dark Mode via Data Attribute mapping could go here later */
+
+  html {
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-surface-bg text-content;
+    overflow: hidden;
+  }
+
+  input,
+  textarea {
+    direction: auto;
+    text-align: start;
+    unicode-bidi: plaintext;
+  }
+
+  /* Fonts injected in index.html */
+}
+
+@layer utilities {
+  .ease-spring {
+    transition-timing-function: cubic-bezier(.34, 1.56, .64, 1);
+  }
+
+  /* Scrollbar override */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(10, 25, 47, .12);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(10, 25, 47, .2);
+  }
+}
