@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, Plus } from 'lucide-react';
+import { FileText, Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
@@ -58,7 +58,7 @@ export default function InvoicesScreen() {
         try {
             const { data, error: queryError } = await supabase
                 .from('invoices')
-                .select('id,invoice_no,total,status,created_at,amount_paid,issue_date,due_date,contact_id,invoice_type')
+                .select('id,invoice_no,total,status,created_at,amount_paid,issue_date,due_date,contact_id,invoice_type,subtotal,tax_amount')
                 .eq('tenant_id', user.tenant_id)
                 .order('created_at', { ascending: false });
             if (queryError) throw queryError;
@@ -77,7 +77,7 @@ export default function InvoicesScreen() {
             .from('contacts')
             .select('id,name,email,type')
             .eq('tenant_id', user.tenant_id)
-            .in('type', ['customer', 'lead'])
+            .eq('type', 'customer')
             .order('name');
         setContacts(data ?? []);
     };
@@ -210,7 +210,10 @@ export default function InvoicesScreen() {
                 });
             if (itemRows.length === 0) throw new Error('أضف صنفاً واحداً على الأقل');
             const { error: liErr } = await supabase.from('invoice_items').insert(itemRows);
-            if (liErr) throw liErr;
+            if (liErr) {
+                await supabase.from('invoices').delete().eq('id', inv.id).eq('tenant_id', user.tenant_id);
+                throw liErr;
+            }
 
             setShowCreate(false);
             setCreateForm({
@@ -256,9 +259,16 @@ export default function InvoicesScreen() {
             const prev = Number(inv.amount_paid ?? 0);
             const total = Number(inv.total ?? 0);
             const newPaid = prev + amt;
-            let status = inv.status;
-            if (newPaid >= total) status = 'paid';
+            const eps = 0.01;
+            if (newPaid > total + eps) {
+                setError(`المبلغ يتجاوز المتبقي (الحد الأقصى ${Math.max(0, total - prev).toFixed(2)})`);
+                setPaySaving(false);
+                return;
+            }
+            let status: string = inv.status;
+            if (newPaid >= total - eps) status = 'paid';
             else if (newPaid > 0) status = 'partial';
+            else status = 'sent';
 
             const { error: pErr } = await supabase.from('payments').insert({
                 tenant_id: user.tenant_id,
@@ -292,23 +302,88 @@ export default function InvoicesScreen() {
     const creditNote = async (row: any) => {
         if (!user?.tenant_id) return;
         if (!window.confirm('إنشاء إشعار دائن مرتبط بهذه الفاتورة؟')) return;
+        setError('');
         try {
+            const { data: origItems, error: oiErr } = await supabase
+                .from('invoice_items')
+                .select('*')
+                .eq('tenant_id', user.tenant_id)
+                .eq('invoice_id', row.id);
+            if (oiErr) throw oiErr;
             const no = await nextInvoiceNo();
-            const { error } = await supabase.from('invoices').insert({
-                tenant_id: user.tenant_id,
-                invoice_no: no,
-                invoice_type: 'credit_note',
-                status: 'sent',
-                contact_id: row.contact_id,
-                issue_date: todayISO(),
-                due_date: row.due_date,
-                subtotal: Number(row.total ?? 0),
-                tax_amount: 0,
-                total: Number(row.total ?? 0),
-                amount_paid: 0,
-                notes: `إشعار دائن عن ${row.invoice_no}`,
-            });
-            if (error) throw error;
+            const absTotal = Math.abs(Number(row.total ?? 0));
+            const absSub = Math.abs(Number(row.subtotal ?? 0));
+            const absTax = Math.abs(Number(row.tax_amount ?? 0));
+            const negSub = origItems?.length
+                ? (origItems as any[]).reduce((s, it) => s - Math.abs(Number(it.net_amount ?? 0)), 0)
+                : -absSub;
+            const negTax = origItems?.length
+                ? (origItems as any[]).reduce((s, it) => s - Math.abs(Number(it.tax_amount ?? 0)), 0)
+                : -absTax;
+            const negTotal = negSub + negTax;
+
+            const { data: newInv, error: invErr } = await supabase
+                .from('invoices')
+                .insert({
+                    tenant_id: user.tenant_id,
+                    invoice_no: no,
+                    invoice_type: 'credit_note',
+                    status: 'sent',
+                    contact_id: row.contact_id,
+                    issue_date: todayISO(),
+                    due_date: row.due_date,
+                    subtotal: negSub,
+                    tax_amount: negTax,
+                    total: negTotal,
+                    amount_paid: 0,
+                    notes: `CREDIT_FOR:${row.id}|ORIG:${row.invoice_no}`,
+                })
+                .select('id')
+                .single();
+            if (invErr) throw invErr;
+            if (!newInv?.id) throw new Error('لم يُنشأ إشعار الدائن');
+
+            const lines =
+                (origItems ?? []).length > 0
+                    ? (origItems as any[]).map((it, idx) => {
+                          const net = Math.abs(Number(it.net_amount ?? 0));
+                          const tax = Math.abs(Number(it.tax_amount ?? 0));
+                          const lineTot = Math.abs(Number(it.line_total ?? net + tax));
+                          const q = Math.abs(Number(it.quantity ?? 1));
+                          const up = Math.abs(Number(it.unit_price ?? 0));
+                          return {
+                              tenant_id: user.tenant_id,
+                              invoice_id: newInv.id,
+                              name: it.name || 'إشعار دائن',
+                              quantity: q,
+                              unit_price: -up,
+                              tax_rate: Number(it.tax_rate ?? VAT),
+                              tax_amount: -tax,
+                              net_amount: -net,
+                              line_total: -lineTot,
+                              sort_order: idx,
+                          };
+                      })
+                    : [
+                          {
+                              tenant_id: user.tenant_id,
+                              invoice_id: newInv.id,
+                              name: `إشعار دائن — ${row.invoice_no}`,
+                              quantity: 1,
+                              unit_price: -absTotal,
+                              tax_rate: VAT,
+                              tax_amount: 0,
+                              net_amount: -absTotal,
+                              line_total: -absTotal,
+                              sort_order: 0,
+                          },
+                      ];
+
+            const { error: liErr } = await supabase.from('invoice_items').insert(lines);
+            if (liErr) {
+                await supabase.from('invoices').delete().eq('id', newInv.id).eq('tenant_id', user.tenant_id);
+                throw liErr;
+            }
             await loadInvoices();
         } catch (e: any) {
             setError(e?.message ?? 'فشل إنشاء إشعار الدائن');
@@ -520,6 +595,7 @@ export default function InvoicesScreen() {
                                     <th className="text-start py-1">السعر</th>
                                     <th className="text-start py-1">الضريبة %</th>
                                     <th className="text-start py-1">الإجمالي</th>
+                                    <th className="text-start py-1 w-10"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -568,6 +644,19 @@ export default function InvoicesScreen() {
                                                 />
                                             </td>
                                             <td className="font-bold whitespace-nowrap">{t.lineTotal.toFixed(2)}</td>
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    className="p-1 rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-30"
+                                                    disabled={lines.length <= 1}
+                                                    title="حذف الصف"
+                                                    onClick={() =>
+                                                        setLines(lines.length > 1 ? lines.filter((_, i) => i !== idx) : lines)
+                                                    }
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </td>
                                         </tr>
                                     );
                                 })}

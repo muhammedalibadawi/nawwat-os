@@ -45,9 +45,10 @@ interface PosState {
     checkout: (params: {
         tenantId: string;
         userId: string;
+        contactId?: string | null;
         paymentMethod: 'cash' | 'card' | 'installment';
         amountPaid: number;
-    }) => Promise<string | null>;
+    }) => Promise<{ orderId: string; invoiceId: string | null } | null>;
     syncOfflineOrders: () => Promise<void>;
 }
 
@@ -110,14 +111,14 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
         set(CART_STORAGE_KEY, []);
     },
 
-    checkout: async ({ tenantId, userId, paymentMethod, amountPaid }) => {
+    checkout: async ({ tenantId, userId, contactId, paymentMethod, amountPaid }) => {
         const { cart, grandTotal, vatTotal, clearCart, offlineQueue } = getStore();
         if (cart.length === 0) return null;
 
         const order = {
-            id: `ORD-${Date.now()}`,
-            tenant_id: tenantId,  // passed from UI component via useAuth()
-            user_id: userId,       // passed from UI component via useAuth()
+            id: `POS-${Date.now()}`,
+            tenant_id: tenantId,
+            user_id: userId,
             items: cart,
             total: grandTotal,
             vat: vatTotal,
@@ -125,64 +126,92 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
             synced: false,
         };
 
-        // Save to offline queue (synced on reconnect)
         const newQueue = [...offlineQueue, order];
         setStore({ offlineQueue: newQueue });
         await set(QUEUE_STORAGE_KEY, newQueue);
 
-        // Attempt Online DB Sync
+        let invoiceId: string | null = null;
         try {
-            // 1. Create Invoice
             const normalizedPaid = Math.max(0, amountPaid);
-            const invoiceStatus = normalizedPaid >= order.total ? 'paid' : normalizedPaid > 0 ? 'partial' : 'unpaid';
-            const { data: invData, error: invError } = await supabase.from('invoices').insert({
-                tenant_id: tenantId,
-                invoice_no: order.id,
-                invoice_type: 'sale',
-                status: invoiceStatus,
-                subtotal: order.total - order.vat,
-                tax_amount: order.vat,
-                total: order.total,
-                amount_paid: normalizedPaid,
-                created_by: userId
-            }).select('id').single();
+            const invoiceStatus =
+                normalizedPaid >= order.total - 0.01 ? 'paid' : normalizedPaid > 0 ? 'partial' : 'sent';
+            const subtotalExVat = order.total - order.vat;
+            const payMethod =
+                paymentMethod === 'installment'
+                    ? 'online'
+                    : paymentMethod === 'cash'
+                      ? 'cash'
+                      : 'card';
+
+            const { data: invData, error: invError } = await supabase
+                .from('invoices')
+                .insert({
+                    tenant_id: tenantId,
+                    invoice_no: order.id,
+                    invoice_type: 'sale',
+                    status: invoiceStatus,
+                    contact_id: contactId ?? null,
+                    issue_date: new Date().toISOString().slice(0, 10),
+                    subtotal: subtotalExVat,
+                    tax_amount: order.vat,
+                    total: order.total,
+                    amount_paid: normalizedPaid,
+                    created_by: userId,
+                })
+                .select('id')
+                .single();
 
             if (invError) throw invError;
+            invoiceId = invData.id;
 
-            // 2. Create Invoice Items & Inventory Movements
-            const invoiceItems = cart.map((item, index) => ({
-                tenant_id: tenantId,
-                invoice_id: invData.id,
-                item_ref: item.id,
-                name: item.name,
-                quantity: item.quantity,
-                unit_price: item.price,
-                line_total: item.price * item.quantity,
-                sort_order: index
-            }));
-            
-            await supabase.from('invoice_items').insert(invoiceItems);
-
-            await supabase.from('payments').insert({
-                tenant_id: tenantId,
-                invoice_id: invData.id,
-                method: paymentMethod,
-                amount: normalizedPaid,
-                status: 'captured',
-                paid_at: new Date().toISOString()
+            const invoiceItems = cart.map((item, index) => {
+                const lineNet = item.price * item.quantity;
+                const lineTax =
+                    subtotalExVat > 0 ? order.vat * (lineNet / subtotalExVat) : 0;
+                return {
+                    tenant_id: tenantId,
+                    invoice_id: invData.id,
+                    item_ref: item.id,
+                    name: item.name,
+                    quantity: item.quantity,
+                    unit_price: item.price,
+                    tax_rate: VAT_RATE * 100,
+                    tax_amount: lineTax,
+                    net_amount: lineNet,
+                    line_total: lineNet + lineTax,
+                    sort_order: index,
+                };
             });
-            
-            // 3. Mark Offline Queue as Synced (Optimistic for this session)
-            const remainingQueue = newQueue.filter(q => q.id !== order.id);
+
+            const { error: itemsErr } = await supabase.from('invoice_items').insert(invoiceItems);
+            if (itemsErr) {
+                await supabase.from('invoices').delete().eq('id', invData.id).eq('tenant_id', tenantId);
+                throw itemsErr;
+            }
+
+            if (normalizedPaid > 0) {
+                const { error: payErr } = await supabase.from('payments').insert({
+                    tenant_id: tenantId,
+                    reference_type: 'invoice',
+                    reference_id: invData.id,
+                    amount: normalizedPaid,
+                    method: payMethod,
+                    status: 'completed',
+                    paid_at: new Date().toISOString(),
+                });
+                if (payErr) throw payErr;
+            }
+
+            const remainingQueue = newQueue.filter((q) => q.id !== order.id);
             setStore({ offlineQueue: remainingQueue });
             await set(QUEUE_STORAGE_KEY, remainingQueue);
-
         } catch (err: any) {
             console.error('POS Checkout DB Sync failed, order queued offline:', err.message);
+            invoiceId = null;
         }
 
         clearCart();
-        return order.id;
+        return { orderId: order.id, invoiceId };
     },
 
     syncOfflineOrders: async () => {

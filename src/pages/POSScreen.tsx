@@ -22,6 +22,9 @@ const POSScreen: React.FC = () => {
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'installment'>('cash');
   const [installmentMonths, setInstallmentMonths] = useState(3);
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [loyaltyBalance, setLoyaltyBalance] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +70,48 @@ const POSScreen: React.FC = () => {
     };
   }, [user?.tenant_id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCustomers() {
+      if (!user?.tenant_id) {
+        setCustomers([]);
+        return;
+      }
+      const { data } = await supabase
+        .from('contacts')
+        .select('id,name')
+        .eq('tenant_id', user.tenant_id)
+        .eq('type', 'customer')
+        .order('name');
+      if (!cancelled) setCustomers(data ?? []);
+    }
+    loadCustomers();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.tenant_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadLoyalty() {
+      if (!user?.tenant_id || !selectedCustomerId) {
+        setLoyaltyBalance(null);
+        return;
+      }
+      const { data } = await supabase
+        .from('loyalty_points')
+        .select('points_balance')
+        .eq('tenant_id', user.tenant_id)
+        .eq('customer_id', selectedCustomerId)
+        .maybeSingle();
+      if (!cancelled) setLoyaltyBalance(data != null ? Number((data as any).points_balance ?? 0) : 0);
+    }
+    loadLoyalty();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.tenant_id, selectedCustomerId]);
+
   const categories = useMemo(() => {
     const set = new Set<string>(['الكل']);
     products.forEach((p) => set.add(p.category || 'عام'));
@@ -87,14 +132,72 @@ const POSScreen: React.FC = () => {
       console.warn('[POSScreen] checkout skipped: missing tenant_id or user id');
       return;
     }
+    const totalSnapshot = grandTotal;
     const amountPaid = paymentMethod === 'installment' ? grandTotal / Math.max(1, installmentMonths) : grandTotal;
-    const orderId = await checkout({
+    const result = await checkout({
       tenantId: user.tenant_id,
       userId: user.id,
+      contactId: selectedCustomerId || null,
       paymentMethod,
       amountPaid,
     });
-    if (orderId) {
+    if (result?.orderId) {
+      if (result.invoiceId && selectedCustomerId && totalSnapshot > 0) {
+        const points = Math.floor(totalSnapshot);
+        if (points > 0) {
+          try {
+            const { data: existing } = await supabase
+              .from('loyalty_points')
+              .select('id, points_balance, total_earned')
+              .eq('tenant_id', user.tenant_id)
+              .eq('customer_id', selectedCustomerId)
+              .maybeSingle();
+            let loyaltyRowId = (existing as any)?.id as string | undefined;
+            if (!loyaltyRowId) {
+              const { data: ins, error: insErr } = await supabase
+                .from('loyalty_points')
+                .insert({
+                  tenant_id: user.tenant_id,
+                  customer_id: selectedCustomerId,
+                  points_balance: points,
+                  total_earned: points,
+                })
+                .select('id')
+                .single();
+              if (!insErr && ins?.id) loyaltyRowId = ins.id;
+            } else {
+              await supabase
+                .from('loyalty_points')
+                .update({
+                  points_balance: Number((existing as any).points_balance ?? 0) + points,
+                  total_earned: Number((existing as any).total_earned ?? 0) + points,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', loyaltyRowId)
+                .eq('tenant_id', user.tenant_id);
+            }
+            if (loyaltyRowId) {
+              await supabase.from('loyalty_transactions').insert({
+                tenant_id: user.tenant_id,
+                loyalty_id: loyaltyRowId,
+                customer_id: selectedCustomerId,
+                type: 'earned',
+                points,
+                invoice_id: result.invoiceId,
+              });
+            }
+            const { data: bal } = await supabase
+              .from('loyalty_points')
+              .select('points_balance')
+              .eq('tenant_id', user.tenant_id)
+              .eq('customer_id', selectedCustomerId)
+              .maybeSingle();
+            setLoyaltyBalance(bal != null ? Number((bal as any).points_balance ?? 0) : points);
+          } catch (e) {
+            console.warn('[POSScreen] loyalty update skipped:', e);
+          }
+        }
+      }
       const soundEnabled = localStorage.getItem('pos_sound') !== 'off';
       if (soundEnabled) {
         const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -112,7 +215,7 @@ const POSScreen: React.FC = () => {
           oscillator.stop(audioCtx.currentTime + 0.3);
         }
       }
-      setLastOrderId(orderId);
+      setLastOrderId(result.orderId);
       setShowModal(true);
     }
   };
@@ -233,15 +336,37 @@ const POSScreen: React.FC = () => {
         {/* Right Side: Cart Panel */}
         <div className="w-[360px] xl:w-[420px] bg-surface-card border-s border-border flex flex-col shadow-[-4px_0_24px_rgba(0,0,0,0.02)] shrink-0 z-10">
 
-          <div className="p-5 border-b border-border flex items-center justify-between bg-surface-bg/50 shrink-0">
-            <h2 className="font-nunito font-extrabold text-lg text-midnight">الطلب الحالي</h2>
-            <button
+          <div className="p-5 border-b border-border space-y-3 bg-surface-bg/50 shrink-0">
+            <div className="flex items-center justify-between">
+              <h2 className="font-nunito font-extrabold text-lg text-midnight">الطلب الحالي</h2>
+              <button
               onClick={clearCart}
               disabled={cart.length === 0}
               className="text-xs font-bold text-danger/80 hover:text-danger disabled:opacity-30 transition-colors cursor-pointer bg-transparent border-none"
             >
               مسح الكل
             </button>
+            </div>
+            <div>
+              <label className="text-[0.65rem] font-bold text-content-3 block mb-1">العميل (اختياري)</label>
+              <select
+                value={selectedCustomerId}
+                onChange={(e) => setSelectedCustomerId(e.target.value)}
+                className="w-full bg-surface-card border border-border rounded-lg px-3 py-2 text-sm font-bold text-midnight"
+              >
+                <option value="">— بدون عميل —</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              {selectedCustomerId && (
+                <p className="text-xs font-bold text-cyan mt-1">
+                  رصيد النقاط: {loyaltyBalance != null ? Math.floor(loyaltyBalance) : '…'}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">

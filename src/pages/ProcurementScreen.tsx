@@ -206,7 +206,7 @@ export default function ProcurementScreen() {
                     tenant_id: user.tenant_id,
                     item_id: line.item_id,
                     warehouse_id: receiptWarehouse,
-                    movement_type: 'purchase',
+                    movement_type: 'purchase_receipt',
                     quantity: q,
                     unit_cost: unitCost,
                     total_cost: q * unitCost,
@@ -224,7 +224,7 @@ export default function ProcurementScreen() {
                 .eq('tenant_id', user.tenant_id);
             if (upErr) throw upErr;
             setReceiptPo(null);
-            alert('تم تسجيل الاستلام وتحديث المخزون');
+            alert('تم الاستلام وتحديث المخزون');
             await load();
         } catch (e: any) {
             setError(e?.message ?? 'فشل الاستلام');

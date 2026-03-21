@@ -22,7 +22,7 @@ export default function ReportsScreen() {
     const [lowStockItems, setLowStockItems] = useState<any[]>([]);
 
     const [pl, setPl] = useState({ revenue: 0, expenses: 0, net: 0 });
-    const [plMonthly, setPlMonthly] = useState<{ month: string; revenue: number; expenses: number }[]>([]);
+    const [plMonthly, setPlMonthly] = useState<{ month: string; revenue: number; expenses: number; net: number }[]>([]);
     const [receivables, setReceivables] = useState<any[]>([]);
     const [inventoryVal, setInventoryVal] = useState<{ rows: any[]; total: number }>({ rows: [], total: 0 });
 
@@ -42,7 +42,7 @@ export default function ReportsScreen() {
                         .gte('created_at', sixMonthsAgo.toISOString()),
                     supabase
                         .from('invoice_items')
-                        .select('name, item_ref, quantity, unit_price, line_total')
+                        .select('name, item_ref, quantity, unit_price, line_total, net_amount, tax_amount')
                         .eq('tenant_id', user.tenant_id),
                     supabase
                         .from('contacts')
@@ -54,9 +54,10 @@ export default function ReportsScreen() {
                         .eq('tenant_id', user.tenant_id),
                     supabase
                         .from('invoices')
-                        .select('total, status, created_at')
+                        .select('total, status, created_at, issue_date, invoice_type')
                         .eq('tenant_id', user.tenant_id)
-                        .eq('status', 'paid'),
+                        .eq('status', 'paid')
+                        .eq('invoice_type', 'sale'),
                     supabase
                         .from('stock_levels')
                         .select('item_id, quantity')
@@ -108,40 +109,57 @@ export default function ReportsScreen() {
                 const expenseTotal = (expRes.data ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
                 setPl({ revenue, expenses: expenseTotal, net: revenue - expenseTotal });
 
+                const monthKey = (d: Date) => d.toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' });
                 const pm: Record<string, { revenue: number; expenses: number }> = {};
                 (invPaid.data ?? []).forEach((r: any) => {
-                    const key = new Date(r.created_at).toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' });
+                    const raw = r.issue_date || r.created_at;
+                    const key = raw ? monthKey(new Date(raw)) : '—';
                     if (!pm[key]) pm[key] = { revenue: 0, expenses: 0 };
                     pm[key].revenue += Number(r.total ?? 0);
                 });
                 (expRes.data ?? []).forEach((r: any) => {
-                    const key = r.expense_date
-                        ? new Date(r.expense_date).toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' })
-                        : '—';
+                    const key = r.expense_date ? monthKey(new Date(r.expense_date)) : '—';
                     if (!pm[key]) pm[key] = { revenue: 0, expenses: 0 };
                     pm[key].expenses += Number(r.amount ?? 0);
                 });
-                setPlMonthly(Object.entries(pm).map(([month, v]) => ({ month, revenue: v.revenue, expenses: v.expenses })));
+                setPlMonthly(
+                    Object.entries(pm)
+                        .map(([month, v]) => ({
+                            month,
+                            revenue: v.revenue,
+                            expenses: v.expenses,
+                            net: v.revenue - v.expenses,
+                        }))
+                        .sort((a, b) => a.month.localeCompare(b.month, 'ar'))
+                );
 
-                const { data: recInv, error: recErr } = await supabase
+                const { data: saleInv, error: saleErr } = await supabase
                     .from('invoices')
-                    .select('id, invoice_no, total, amount_paid, status, contact_id, issue_date')
+                    .select('contact_id, total, amount_paid, invoice_type')
                     .eq('tenant_id', user.tenant_id)
-                    .in('status', ['unpaid', 'partial', 'sent', 'overdue']);
-                if (recErr) throw recErr;
-                const cids = [...new Set((recInv ?? []).map((r: any) => r.contact_id).filter(Boolean))] as string[];
-                let cmap: Record<string, string> = {};
-                if (cids.length > 0) {
-                    const { data: cts } = await supabase.from('contacts').select('id,name').in('id', cids);
-                    cmap = Object.fromEntries((cts ?? []).map((c: any) => [c.id, c.name]));
-                }
-                const recSorted = (recInv ?? [])
-                    .map((r: any) => ({
-                        ...r,
-                        due: Math.max(0, Number(r.total ?? 0) - Number(r.amount_paid ?? 0)),
-                        contact_name: (r.contact_id && cmap[r.contact_id]) || '—',
+                    .eq('invoice_type', 'sale')
+                    .not('contact_id', 'is', null);
+                if (saleErr) throw saleErr;
+                const dueByContact: Record<string, number> = {};
+                (saleInv ?? []).forEach((inv: any) => {
+                    const due = Math.max(0, Number(inv.total ?? 0) - Number(inv.amount_paid ?? 0));
+                    if (due <= 0) return;
+                    const cid = String(inv.contact_id);
+                    dueByContact[cid] = (dueByContact[cid] ?? 0) + due;
+                });
+                const { data: customerRows } = await supabase
+                    .from('contacts')
+                    .select('id,name')
+                    .eq('tenant_id', user.tenant_id)
+                    .eq('type', 'customer');
+                const nameMap = Object.fromEntries((customerRows ?? []).map((c: any) => [c.id, c.name]));
+                const recSorted = Object.entries(dueByContact)
+                    .map(([cid, total_due]) => ({
+                        contact_id: cid,
+                        contact_name: nameMap[cid] || '—',
+                        total_due,
                     }))
-                    .sort((a: any, b: any) => b.due - a.due);
+                    .sort((a, b) => b.total_due - a.total_due);
                 setReceivables(recSorted);
 
                 const qtyMap: Record<string, number> = {};
@@ -273,15 +291,21 @@ export default function ReportsScreen() {
 
                     <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
                         <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                            <h2 className="font-black">هـ) تقرير الأرباح والخسائر (مبسط)</h2>
+                            <h2 className="font-black">هـ) تقرير الأرباح والخسائر (إيرادات مدفوعة مقابل مصروفات)</h2>
                             <button
                                 type="button"
                                 onClick={() =>
                                     exportExcel(
                                         [
-                                            { بند: 'الإيرادات', مبلغ: pl.revenue },
+                                            { بند: 'الإيرادات_فواتير_مدفوعة', مبلغ: pl.revenue },
                                             { بند: 'المصروفات', مبلغ: pl.expenses },
-                                            { بند: 'صافي الربح', مبلغ: pl.net },
+                                            { بند: 'صافي_الربح', مبلغ: pl.net },
+                                            ...plMonthly.map((m) => ({
+                                                شهر: m.month,
+                                                إيرادات: m.revenue,
+                                                مصروفات: m.expenses,
+                                                صافي: m.net,
+                                            })),
                                         ],
                                         'PL'
                                     )
@@ -312,7 +336,7 @@ export default function ReportsScreen() {
                                     <XAxis dataKey="month" />
                                     <YAxis />
                                     <Tooltip />
-                                    <Bar dataKey="revenue" fill="#00CFFF" name="إيرادات" />
+                                    <Bar dataKey="revenue" fill="#00CFFF" name="إيرادات (مدفوع)" />
                                     <Bar dataKey="expenses" fill="#EF476F" name="مصروفات" />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -321,7 +345,7 @@ export default function ReportsScreen() {
 
                     <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
                         <div className="flex justify-between items-center mb-3">
-                            <h2 className="font-black">و) تقرير المدينون (Receivables)</h2>
+                            <h2 className="font-black">و) تقرير المدينون (مجموع المستحق لكل عميل)</h2>
                             <button
                                 type="button"
                                 onClick={() => exportExcel(receivables as any, 'المدينون')}
@@ -335,18 +359,14 @@ export default function ReportsScreen() {
                                 <thead>
                                     <tr className="text-gray-500">
                                         <th className="text-start py-2">العميل</th>
-                                        <th className="text-start">رقم الفاتورة</th>
-                                        <th className="text-start">المستحق</th>
-                                        <th className="text-start">الحالة</th>
+                                        <th className="text-start">إجمالي المستحق</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {receivables.map((r: any) => (
-                                        <tr key={r.id} className="border-t">
-                                            <td className="py-2">{r.contact_name}</td>
-                                            <td>{r.invoice_no}</td>
-                                            <td className="font-bold">AED {r.due.toFixed(2)}</td>
-                                            <td>{r.status}</td>
+                                        <tr key={r.contact_id} className="border-t">
+                                            <td className="py-2 font-bold">{r.contact_name}</td>
+                                            <td className="font-bold">AED {Number(r.total_due ?? 0).toFixed(2)}</td>
                                         </tr>
                                     ))}
                                 </tbody>

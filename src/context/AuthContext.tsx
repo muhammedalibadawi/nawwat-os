@@ -55,26 +55,23 @@ interface AuthContextType {
 }
 
 // ---------------------------------------------------------------------------
-// buildAppUser — NEVER throws. Always returns a valid AppUser.
+// buildAppUser — reads app_metadata only (no user_metadata fallbacks).
+// Returns null if tenant_id is missing (invalid JWT for app access).
 // ---------------------------------------------------------------------------
 
-const buildAppUser = async (supabaseUser: User): Promise<AppUser> => {
-  // Look at JWT claims for custom role
+const buildAppUser = async (supabaseUser: User): Promise<AppUser | null> => {
   const appMeta = supabaseUser.app_metadata ?? {};
-  const userMeta = supabaseUser.user_metadata ?? {};
-  
-  // If role is missing, leave it empty. We shouldn't blindly default to owner else they get stuck in POS screening errors
-  let role = (appMeta.user_role as AppRole) 
-          || (userMeta.user_role as AppRole) 
-          || '';
 
-  const tenant_id = (appMeta.tenant_id as string) 
-                 || (userMeta.tenant_id as string) 
-                 || ''; // Keep as string to match AppUser interface
-                 
-  const branch_id = (appMeta.default_branch_id as string)
-                 || (userMeta.default_branch_id as string)
-                 || ''; // Keep as string to match AppUser interface
+  // اقرأ من app_metadata فقط — لا fallback لـ user_metadata
+  const role = (appMeta.user_role as AppRole) || '';
+  const tenant_id = (appMeta.tenant_id as string) || '';
+  const branch_id = (appMeta.default_branch_id as string) || '';
+
+  // لو app_metadata فارغة — امنع الدخول
+  if (!tenant_id) {
+    console.error('JWT missing tenant_id in app_metadata');
+    return null;
+  }
 
   // Attempt to fetch display name — this is OPTIONAL and non-critical.
   // If the `profiles` table doesn't exist yet, we fall back to email.
@@ -97,7 +94,14 @@ const buildAppUser = async (supabaseUser: User): Promise<AppUser> => {
     console.warn('[AuthContext] profiles fetch caught unexpected error:', profileErr?.message);
   }
 
-  return { id: supabaseUser.id, email: supabaseUser.email ?? '', full_name, role, tenant_id, branch_id };
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email ?? '',
+    full_name,
+    role: role as AppRole,
+    tenant_id,
+    branch_id,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -133,19 +137,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const appUser = await buildAppUser(activeSession.user);
+      if (appUser === null) {
+        setUser(null);
+        await supabase.auth.signOut();
+        setSession(null);
+        return;
+      }
       setUser(appUser);
     } catch (err: any) {
-      // Should never reach here (buildAppUser is already safe), but belt+suspenders
       console.error('[AuthContext] hydrateUser unexpected error:', err?.message);
-      // Set a minimal fallback user so the app doesn't stay blank
-      setUser({
-        id: activeSession.user.id,
-        email: activeSession.user.email ?? '',
-        full_name: activeSession.user.email ?? 'User',
-        role: 'viewer',
-        tenant_id: '',
-        branch_id: '',
-      });
+      setUser(null);
     }
   }, []);
 

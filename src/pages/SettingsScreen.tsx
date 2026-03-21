@@ -12,7 +12,8 @@ export default function SettingsScreen() {
     const [roles, setRoles] = useState<any[]>([]);
     const [branches, setBranches] = useState<any[]>([]);
     const [inviteForm, setInviteForm] = useState({ email: '', role: '' });
-    const [branchForm, setBranchForm] = useState({ id: '', name: '' });
+    const [branchModalOpen, setBranchModalOpen] = useState(false);
+    const [branchForm, setBranchForm] = useState({ id: '', name: '', address: '', phone: '', city: '' });
     const [posSound, setPosSound] = useState(localStorage.getItem('pos_sound') !== 'off');
     const [posAutoPrint, setPosAutoPrint] = useState(localStorage.getItem('pos_auto_print') === 'on');
     const [posShowCurrency, setPosShowCurrency] = useState(localStorage.getItem('pos_show_currency') !== 'off');
@@ -25,7 +26,11 @@ export default function SettingsScreen() {
                 supabase.from('tenants').select('*').eq('id', user.tenant_id).single(),
                 supabase.from('users').select('id,full_name,email').eq('tenant_id', user.tenant_id),
                 supabase.from('roles').select('id,name').eq('tenant_id', user.tenant_id),
-                supabase.from('branches').select('*').eq('tenant_id', user.tenant_id),
+                supabase
+                    .from('branches')
+                    .select('id, name, address, phone, is_active, created_at, city')
+                    .eq('tenant_id', user.tenant_id)
+                    .order('created_at', { ascending: false }),
             ]);
             if (cancelled) return;
             if (tRes.error || uRes.error || rRes.error || bRes.error) {
@@ -77,16 +82,38 @@ export default function SettingsScreen() {
         localStorage.setItem('pos_show_currency', posShowCurrency ? 'on' : 'off');
     };
 
-    const saveBranch = async () => {
-        if (!user?.tenant_id || !branchForm.name) return;
-        if (branchForm.id) {
-            await supabase.from('branches').update({ name: branchForm.name }).eq('id', branchForm.id).eq('tenant_id', user.tenant_id);
-        } else {
-            await supabase.from('branches').insert({ tenant_id: user.tenant_id, name: branchForm.name });
-        }
-        setBranchForm({ id: '', name: '' });
-        const { data } = await supabase.from('branches').select('*').eq('tenant_id', user.tenant_id);
+    const reloadBranches = async () => {
+        if (!user?.tenant_id) return;
+        const { data } = await supabase
+            .from('branches')
+            .select('id, name, address, phone, is_active, created_at, city')
+            .eq('tenant_id', user.tenant_id)
+            .order('created_at', { ascending: false });
         setBranches(data ?? []);
+    };
+
+    const saveBranch = async () => {
+        if (!user?.tenant_id || !branchForm.name.trim()) return;
+        const payload = {
+            name: branchForm.name.trim(),
+            address: branchForm.address.trim() || null,
+            phone: branchForm.phone.trim() || null,
+            city: branchForm.city.trim() || null,
+        };
+        if (branchForm.id) {
+            await supabase.from('branches').update(payload).eq('id', branchForm.id).eq('tenant_id', user.tenant_id);
+        } else {
+            await supabase.from('branches').insert({ tenant_id: user.tenant_id, ...payload });
+        }
+        setBranchModalOpen(false);
+        setBranchForm({ id: '', name: '', address: '', phone: '', city: '' });
+        await reloadBranches();
+    };
+
+    const toggleBranchActive = async (b: { id: string; is_active: boolean }) => {
+        if (!user?.tenant_id) return;
+        await supabase.from('branches').update({ is_active: !b.is_active }).eq('id', b.id).eq('tenant_id', user.tenant_id);
+        await reloadBranches();
     };
 
     return (
@@ -177,14 +204,121 @@ export default function SettingsScreen() {
                     </div>
                 )}
                 {activeTab === 'branches' && (
-                    <div className="p-6 space-y-3">
-                        <div className="flex gap-2">
-                            <input className="border rounded-xl px-3 py-2 flex-1" placeholder="اسم الفرع" value={branchForm.name} onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })} />
-                            <button onClick={saveBranch} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold">حفظ</button>
+                    <div className="p-6 space-y-4">
+                        <div className="flex justify-between items-center flex-wrap gap-2">
+                            <p className="text-sm text-gray-600">إدارة فروع المنشأة</p>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setBranchForm({ id: '', name: '', address: '', phone: '', city: '' });
+                                    setBranchModalOpen(true);
+                                }}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold"
+                            >
+                                إضافة فرع جديد
+                            </button>
                         </div>
-                        <div className="bg-white border rounded-xl overflow-x-auto">
-                            <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-start">الفرع</th><th className="p-3 text-start">إجراء</th></tr></thead><tbody>{branches.map((b) => <tr key={b.id} className="border-t"><td className="p-3">{b.name || b.id}</td><td className="p-3 flex gap-2"><button onClick={() => setBranchForm({ id: b.id, name: b.name || '' })} className="px-2 py-1 bg-cyan-50 rounded">تعديل</button><button onClick={async () => { await supabase.from('branches').delete().eq('id', b.id).eq('tenant_id', user?.tenant_id); const { data } = await supabase.from('branches').select('*').eq('tenant_id', user?.tenant_id); setBranches(data ?? []); }} className="px-2 py-1 bg-red-50 rounded text-red-700">حذف</button></td></tr>)}</tbody></table>
+                        <div className="border rounded-xl overflow-x-auto">
+                            <table className="w-full text-sm min-w-[640px]">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="p-3 text-start">الاسم</th>
+                                        <th className="p-3 text-start">العنوان</th>
+                                        <th className="p-3 text-start">الهاتف</th>
+                                        <th className="p-3 text-start">الحالة</th>
+                                        <th className="p-3 text-start">إجراءات</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {branches.map((b) => (
+                                        <tr key={b.id} className="border-t">
+                                            <td className="p-3 font-bold">{b.name || '—'}</td>
+                                            <td className="p-3 text-gray-600">{b.address || '—'}</td>
+                                            <td className="p-3">{b.phone || '—'}</td>
+                                            <td className="p-3">
+                                                <span
+                                                    className={`px-2 py-1 rounded-md text-xs font-bold ${b.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'}`}
+                                                >
+                                                    {b.is_active ? 'نشط' : 'معطّل'}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 flex flex-wrap gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setBranchForm({
+                                                            id: b.id,
+                                                            name: b.name || '',
+                                                            address: b.address || '',
+                                                            phone: b.phone || '',
+                                                            city: b.city || '',
+                                                        });
+                                                        setBranchModalOpen(true);
+                                                    }}
+                                                    className="px-2 py-1 bg-cyan-50 text-cyan-800 rounded-lg font-bold text-xs"
+                                                >
+                                                    تعديل
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleBranchActive(b)}
+                                                    className="px-2 py-1 bg-gray-100 rounded-lg font-bold text-xs"
+                                                >
+                                                    {b.is_active ? 'تعطيل' : 'تفعيل'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
+
+                        {branchModalOpen && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                                <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl space-y-3">
+                                    <h3 className="text-lg font-black">{branchForm.id ? 'تعديل فرع' : 'فرع جديد'}</h3>
+                                    <input
+                                        className="w-full border rounded-xl px-3 py-2"
+                                        placeholder="اسم الفرع *"
+                                        value={branchForm.name}
+                                        onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
+                                    />
+                                    <input
+                                        className="w-full border rounded-xl px-3 py-2"
+                                        placeholder="العنوان"
+                                        value={branchForm.address}
+                                        onChange={(e) => setBranchForm({ ...branchForm, address: e.target.value })}
+                                    />
+                                    <input
+                                        className="w-full border rounded-xl px-3 py-2"
+                                        placeholder="الهاتف"
+                                        value={branchForm.phone}
+                                        onChange={(e) => setBranchForm({ ...branchForm, phone: e.target.value })}
+                                    />
+                                    <input
+                                        className="w-full border rounded-xl px-3 py-2"
+                                        placeholder="المدينة"
+                                        value={branchForm.city}
+                                        onChange={(e) => setBranchForm({ ...branchForm, city: e.target.value })}
+                                    />
+                                    <div className="flex justify-end gap-2 pt-2">
+                                        <button
+                                            type="button"
+                                            className="px-4 py-2 border rounded-xl font-bold"
+                                            onClick={() => {
+                                                setBranchModalOpen(false);
+                                                setBranchForm({ id: '', name: '', address: '', phone: '', city: '' });
+                                            }}
+                                        >
+                                            إلغاء
+                                        </button>
+                                        <button type="button" className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold" onClick={saveBranch}>
+                                            حفظ
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

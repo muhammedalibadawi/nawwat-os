@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Package, AlertCircle, PlusCircle, Pencil, Trash2, Building2, ArrowRightLeft, BarChart3, BellRing, Warehouse, ImageIcon, Eye } from 'lucide-react';
 
-type TabKey = 'products' | 'movements' | 'reports' | 'warehouses' | 'alerts';
+type TabKey = 'products' | 'movements' | 'reports' | 'warehouses' | 'alerts' | 'transfers';
 type StockFilter = 'all' | 'available' | 'low' | 'out';
 type MovementType = 'receipt' | 'issue' | 'transfer' | 'adjustment' | 'waste';
 
@@ -63,6 +63,7 @@ const tabs: { key: TabKey; label: string }[] = [
     { key: 'reports', label: '📊 التقارير' },
     { key: 'warehouses', label: '🏭 المستودعات' },
     { key: 'alerts', label: '⚠️ التنبيهات' },
+    { key: 'transfers', label: '🔀 التحويلات' },
 ];
 
 const movementTypeLabel: Record<MovementType, string> = {
@@ -127,6 +128,16 @@ export default function InventoryScreen() {
         batch_no: '',
         expiry_date: '',
         notes: '',
+    });
+
+    const [showTransferModal, setShowTransferModal] = useState(false);
+    const [transferSaving, setTransferSaving] = useState(false);
+    const [transferError, setTransferError] = useState('');
+    const [transferForm, setTransferForm] = useState({
+        item_id: '',
+        from_warehouse_id: '',
+        to_warehouse_id: '',
+        quantity: '',
     });
 
     const [showWarehouseModal, setShowWarehouseModal] = useState(false);
@@ -385,6 +396,71 @@ export default function InventoryScreen() {
             setWarehouseError(err?.message ?? 'فشل حفظ المستودع');
         } finally {
             setSavingWarehouse(false);
+        }
+    };
+
+    const saveStockTransfer = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user?.tenant_id || !user?.id) return;
+        setTransferError('');
+        const qty = Number(transferForm.quantity);
+        if (!transferForm.item_id || !transferForm.from_warehouse_id || !transferForm.to_warehouse_id) {
+            setTransferError('اختر المنتج والمستودعين');
+            return;
+        }
+        if (transferForm.from_warehouse_id === transferForm.to_warehouse_id) {
+            setTransferError('المستودع المصدر والوجهة يجب أن يختلفا');
+            return;
+        }
+        if (Number.isNaN(qty) || qty <= 0) {
+            setTransferError('الكمية غير صحيحة');
+            return;
+        }
+        const sl = stockLevels.find(
+            (s) => s.item_id === transferForm.item_id && s.warehouse_id === transferForm.from_warehouse_id
+        );
+        const available = Number(sl?.quantity ?? 0);
+        if (qty > available) {
+            setTransferError(`الكمية المتاحة في المستودع المصدر: ${available}`);
+            return;
+        }
+        const item = items.find((i) => i.id === transferForm.item_id);
+        const uc = Number(item?.cost_price ?? 0);
+        const refId = crypto.randomUUID();
+        const totalCost = Math.abs(qty * uc);
+        setTransferSaving(true);
+        try {
+            const base = {
+                tenant_id: user.tenant_id,
+                item_id: transferForm.item_id,
+                unit_cost: uc,
+                total_cost: totalCost,
+                created_by: user.id,
+                reference_type: 'stock_transfer',
+                reference_id: refId,
+                notes: 'تحويل مخزون بين المستودعات',
+            };
+            const { error: e1 } = await supabase.from('inventory_movements').insert({
+                ...base,
+                warehouse_id: transferForm.from_warehouse_id,
+                movement_type: 'transfer_out',
+                quantity: -qty,
+            });
+            if (e1) throw e1;
+            const { error: e2 } = await supabase.from('inventory_movements').insert({
+                ...base,
+                warehouse_id: transferForm.to_warehouse_id,
+                movement_type: 'transfer_in',
+                quantity: qty,
+            });
+            if (e2) throw e2;
+            setShowTransferModal(false);
+            setTransferForm({ item_id: '', from_warehouse_id: '', to_warehouse_id: '', quantity: '' });
+            await loadAll();
+        } catch (err: any) {
+            setTransferError(err?.message ?? 'فشل التحويل');
+        } finally {
+            setTransferSaving(false);
         }
     };
 
@@ -910,6 +986,33 @@ export default function InventoryScreen() {
                 </div>
             )}
 
+            {!tabLoading && !tabError && activeTab === 'transfers' && (
+                <div className="bg-white rounded-2xl p-4 border border-[#071C3B]/10 space-y-4">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                        <p className="text-sm text-[#071C3B]/70 font-bold">تحويل المخزون بين المستودعات (يتم تسجيل حركتي transfer_out و transfer_in)</p>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setTransferError('');
+                                setTransferForm({
+                                    item_id: items[0]?.id || '',
+                                    from_warehouse_id: warehouses[0]?.id || '',
+                                    to_warehouse_id: warehouses[1]?.id || warehouses[0]?.id || '',
+                                    quantity: '',
+                                });
+                                setShowTransferModal(true);
+                            }}
+                            className="px-4 py-2 rounded-lg bg-[#071C3B] text-white font-bold text-sm"
+                        >
+                            تحويل مخزون
+                        </button>
+                    </div>
+                    <p className="text-xs text-[#071C3B]/50">
+                        آخر التحويلات تظهر في تبويب «الحركات» بنوع transfer_in / transfer_out.
+                    </p>
+                </div>
+            )}
+
             {showProductModal && (
                 <div className="fixed inset-0 bg-[#071C3B]/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                     <form onSubmit={saveProduct} className="w-full max-w-2xl bg-white rounded-2xl p-6 border border-[#071C3B]/10">
@@ -966,6 +1069,82 @@ export default function InventoryScreen() {
                         <div className="mt-4 flex justify-end gap-2">
                             <button type="button" onClick={() => setShowMovementModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 font-bold">إلغاء</button>
                             <button type="submit" disabled={savingMovement} className="px-4 py-2 rounded-lg bg-[#071C3B] text-white font-bold disabled:opacity-50">{savingMovement ? 'جارٍ الحفظ...' : 'حفظ الحركة'}</button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {showTransferModal && (
+                <div className="fixed inset-0 bg-[#071C3B]/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <form onSubmit={saveStockTransfer} className="w-full max-w-lg bg-white rounded-2xl p-6 border border-[#071C3B]/10">
+                        <h3 className="text-lg font-black mb-4">تحويل مخزون</h3>
+                        <div className="grid grid-cols-1 gap-3">
+                            <label className="text-xs font-bold text-[#071C3B]/60">المنتج</label>
+                            <select
+                                value={transferForm.item_id}
+                                onChange={(e) => setTransferForm({ ...transferForm, item_id: e.target.value })}
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                            >
+                                <option value="">— اختر —</option>
+                                {items.map((i) => (
+                                    <option key={i.id} value={i.id}>
+                                        {i.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <label className="text-xs font-bold text-[#071C3B]/60">من مستودع</label>
+                            <select
+                                value={transferForm.from_warehouse_id}
+                                onChange={(e) => setTransferForm({ ...transferForm, from_warehouse_id: e.target.value })}
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                            >
+                                <option value="">— اختر —</option>
+                                {warehouses.map((w) => (
+                                    <option key={w.id} value={w.id}>
+                                        {w.name_ar || w.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <label className="text-xs font-bold text-[#071C3B]/60">إلى مستودع</label>
+                            <select
+                                value={transferForm.to_warehouse_id}
+                                onChange={(e) => setTransferForm({ ...transferForm, to_warehouse_id: e.target.value })}
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                            >
+                                <option value="">— اختر —</option>
+                                {warehouses.map((w) => (
+                                    <option key={w.id} value={w.id}>
+                                        {w.name_ar || w.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <label className="text-xs font-bold text-[#071C3B]/60">الكمية</label>
+                            <input
+                                type="number"
+                                min={0.0001}
+                                step="any"
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                                placeholder="الكمية"
+                                value={transferForm.quantity}
+                                onChange={(e) => setTransferForm({ ...transferForm, quantity: e.target.value })}
+                            />
+                        </div>
+                        {transferError && <p className="mt-3 text-sm font-bold text-red-600">{transferError}</p>}
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowTransferModal(false)}
+                                className="px-4 py-2 rounded-lg border border-gray-200 font-bold"
+                            >
+                                إلغاء
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={transferSaving}
+                                className="px-4 py-2 rounded-lg bg-[#071C3B] text-white font-bold disabled:opacity-50"
+                            >
+                                {transferSaving ? 'جارٍ الحفظ...' : 'تأكيد التحويل'}
+                            </button>
                         </div>
                     </form>
                 </div>
