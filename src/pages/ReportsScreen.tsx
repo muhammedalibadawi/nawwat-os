@@ -86,7 +86,7 @@ export default function ReportsScreen() {
             <div>
                 <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
                     <FileText size={28} className="text-cyan-500" />
-                    Reports
+                    التقارير
                 </h1>
             </div>
             {loading && <div className="bg-white border rounded-xl p-6 text-center">جاري التحميل...</div>}

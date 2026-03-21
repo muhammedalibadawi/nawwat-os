@@ -46,70 +46,70 @@ export const Sidebar: React.FC = () => {
 
                 {/* Main Section */}
                 <div className={`px-3 py-5 pb-1.5 text-[0.6rem] font-extrabold tracking-widest uppercase text-white/20 whitespace-nowrap overflow-hidden transition-opacity duration-400 shrink-0 ${sidebarMini ? 'opacity-0 pointer-events-none' : ''}`}>
-                    Main
+                    الرئيسية
                 </div>
 
-                <NavItem to="/dashboard" title="Dashboard" icon={LayoutDashboard}>
-                    Dashboard
+                <NavItem to="/dashboard" title="لوحة التحكم" icon={LayoutDashboard}>
+                    لوحة التحكم
                 </NavItem>
-                <NavItem to="/analytics" title="Analytics" icon={BarChart2}>
-                    Analytics
+                <NavItem to="/analytics" title="التحليلات" icon={BarChart2}>
+                    التحليلات
                 </NavItem>
 
                 {/* Operations Section */}
                 <div className={`px-3 py-5 pb-1.5 text-[0.6rem] font-extrabold tracking-widest uppercase text-white/20 whitespace-nowrap overflow-hidden transition-opacity duration-400 shrink-0 mt-2 ${sidebarMini ? 'opacity-0 pointer-events-none' : ''}`}>
-                    Operations
+                    العمليات
                 </div>
 
-                <NavItem to="/pos" title="Point of Sale" icon={MonitorSmartphone} badge={!sidebarMini ? <span className="px-1.5 py-0.5 rounded-full text-[0.62rem] font-extrabold shrink-0 bg-cyan text-midnight">Live</span> : undefined}>
-                    Point of Sale
+                <NavItem to="/pos" title="نقطة البيع" icon={MonitorSmartphone} badge={!sidebarMini ? <span className="px-1.5 py-0.5 rounded-full text-[0.62rem] font-extrabold shrink-0 bg-cyan text-midnight">مباشر</span> : undefined}>
+                    نقطة البيع
                 </NavItem>
-                <NavItem to="/inventory" title="Inventory" icon={Package}>
-                    Inventory
+                <NavItem to="/inventory" title="المخزون" icon={Package}>
+                    المخزون
                 </NavItem>
                 <NavItem to="/procurement" title="المشتريات" icon={ShoppingCart}>
                     المشتريات
                 </NavItem>
-                <NavItem to="/crm" title="CRM" icon={Users}>
-                    CRM
+                <NavItem to="/crm" title="إدارة العملاء" icon={Users}>
+                    إدارة العملاء
                 </NavItem>
-                <NavItem to="/hr" title="HR" icon={Briefcase}>
-                    Human Resources
+                <NavItem to="/hr" title="الموارد البشرية" icon={Briefcase}>
+                    الموارد البشرية
                 </NavItem>
                 <NavItem to="/payroll" title="الرواتب" icon={DollarSign}>
                     الرواتب
                 </NavItem>
-                <NavItem to="/accounting" title="Accounting (GL)" icon={Calculator}>
-                    Accounting & GL
+                <NavItem to="/accounting" title="المحاسبة" icon={Calculator}>
+                    المحاسبة
                 </NavItem>
-                <NavItem to="/logistics" title="Logistics & Delivery" icon={Truck}>
-                    Logistics & Delivery
+                <NavItem to="/logistics" title="الشحن والتوصيل" icon={Truck}>
+                    الشحن والتوصيل
                 </NavItem>
-                <NavItem to="/commerce" title="Commerce Integration" icon={Network}>
-                    Commerce
+                <NavItem to="/commerce" title="التجارة الإلكترونية" icon={Network}>
+                    التجارة الإلكترونية
                 </NavItem>
 
                 {/* Communications */}
                 <div className={`px-3 py-5 pb-1.5 text-[0.6rem] font-extrabold tracking-widest uppercase text-white/20 whitespace-nowrap overflow-hidden transition-opacity duration-400 shrink-0 mt-2 ${sidebarMini ? 'opacity-0 pointer-events-none' : ''}`}>
-                    Communications
+                    التواصل
                 </div>
-                <NavItem to="/chat" title="Chat" icon={MessageSquare}>
-                    Chat
+                <NavItem to="/chat" title="المحادثات" icon={MessageSquare}>
+                    المحادثات
                 </NavItem>
-                <NavItem to="/reports" title="Reports" icon={FileText}>
-                    Reports
+                <NavItem to="/reports" title="التقارير" icon={FileText}>
+                    التقارير
                 </NavItem>
 
-                <NavItem to="/admin-portal" title="Admin Portal" icon={Settings}>
-                    Admin Portal
+                <NavItem to="/admin-portal" title="بوابة الإدارة" icon={Settings}>
+                    بوابة الإدارة
                 </NavItem>
 
             </div>
 
             {/* Footer / Settings */}
             <div className={`shrink-0 border-t border-white/5 p-2 ${sidebarMini ? 'p-2' : ''}`}>
-                <NavItem to="/settings" title="Settings" icon={Settings}>
-                    Settings
+                <NavItem to="/settings" title="الإعدادات" icon={Settings}>
+                    الإعدادات
                 </NavItem>
 
                 {/* User Card */}

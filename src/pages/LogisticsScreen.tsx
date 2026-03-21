@@ -46,10 +46,18 @@ const LogisticsScreen: React.FC = () => {
         return rows.filter((r) => (r.status || '').toLowerCase() === filter);
     }, [rows, filter]);
 
+    const statusLabel = (status: string | null) => {
+        const key = String(status || '').toLowerCase();
+        if (key === 'pending') return 'معلق';
+        if (key === 'in_transit') return 'في الطريق';
+        if (key === 'delivered') return 'تم التسليم';
+        return status || '—';
+    };
+
     return (
         <div className="p-6 space-y-4">
             <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-black text-[#071C3B]">Logistics Shipments</h1>
+                <h1 className="text-2xl font-black text-[#071C3B]">الشحنات</h1>
                 <button className="px-4 py-2 rounded-lg bg-[#071C3B] text-white font-bold">شحنة جديدة</button>
             </div>
 
@@ -79,7 +87,7 @@ const LogisticsScreen: React.FC = () => {
                             {filtered.map((r) => (
                                 <tr key={r.id} className="border-t">
                                     <td className="p-3 font-bold">{r.shipment_no || r.id}</td>
-                                    <td className="p-3">{r.status || '—'}</td>
+                                    <td className="p-3">{statusLabel(r.status)}</td>
                                     <td className="p-3">{r.branch_id || '—'}</td>
                                     <td className="p-3">{new Date(r.created_at).toLocaleString('ar-AE')}</td>
                                 </tr>

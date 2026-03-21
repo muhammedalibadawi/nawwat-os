@@ -91,9 +91,9 @@ export default function AccountingScreen() {
     return (
         <div className="p-8 h-full bg-transparent font-nunito text-gray-800">
             <div className="flex justify-between items-center mb-8">
-                <h1 className="text-2xl font-bold text-[#0A192F]">Financial Controller Hub</h1>
+                <h1 className="text-2xl font-bold text-[#0A192F]">مركز التحكم المالي</h1>
                 <button className="bg-[#0A192F] text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2">
-                    <PlusCircle size={18} /> New Journal Entry
+                    <PlusCircle size={18} /> قيد يومية جديد
                 </button>
             </div>
 

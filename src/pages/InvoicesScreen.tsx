@@ -113,7 +113,7 @@ export default function InvoicesScreen() {
                                 <th className="px-6 py-4">المدفوع</th>
                                 <th className="px-6 py-4">المتبقي</th>
                                 <th className="px-6 py-4">الحالة</th>
-                                <th className="px-6 py-4">PDF</th>
+                                <th className="px-6 py-4">ملف PDF</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
@@ -130,7 +130,7 @@ export default function InvoicesScreen() {
                                         <td className="px-6 py-4">AED {remaining.toFixed(2)}</td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-1 rounded-md text-xs font-bold ${badgeClass(row.status)}`}>
-                                                {row.status ?? 'unknown'}
+                                                {row.status ?? 'غير معروف'}
                                             </span>
                                         </td>
                                         <td className="px-6 py-4">

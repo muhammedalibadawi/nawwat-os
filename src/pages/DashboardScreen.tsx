@@ -27,7 +27,7 @@ const DashboardScreen: React.FC = () => {
     const [actionData, setActionData] = useState<any[]>([]);
     const [chartRows, setChartRows] = useState<{ month: string; total: number }[]>([]);
 
-    const today = new Date().toLocaleDateString('en-AE', {
+    const today = new Date().toLocaleDateString('ar-AE', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
     });
 
@@ -125,7 +125,7 @@ const DashboardScreen: React.FC = () => {
                 client: '—',
                 date: new Date(i.created_at).toLocaleDateString('ar-AE'),
                 amount: `AED ${Number(i.total ?? 0).toLocaleString('ar-AE')}`,
-                status: i.status === 'overdue' ? 'Overdue' : 'Pending',
+                status: i.status === 'overdue' ? 'متأخرة' : 'معلقة',
             }));
     }, [actionData]);
 
@@ -137,33 +137,33 @@ const DashboardScreen: React.FC = () => {
                 <div className="absolute top-0 start-0 w-[500px] h-[500px] bg-cyan/10 rounded-full blur-[100px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
                 <div className="relative z-10">
                     <h1 className="font-nunito text-3xl sm:text-4xl font-black text-midnight mb-2">
-                        Good morning, {user?.full_name?.split(' ')[0] || 'User'}!
+                        صباح الخير، {user?.full_name?.split(' ')[0] || 'المستخدم'}!
                     </h1>
                     <p className="text-content-3 text-sm font-medium flex items-center gap-2">
                         <span>{today}</span>
                         <span className="w-1 h-1 rounded-full bg-content-4" />
                         <span className="text-success font-bold flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-                            ZATCA Connected
+                            ZATCA متصل
                         </span>
                     </p>
                 </div>
                 <div className="flex gap-3 w-full sm:w-auto relative z-10 shrink-0">
                     <Link to="/reports" className="flex-1 sm:flex-none border border-border bg-surface-card hover:bg-surface-bg transition-colors text-content font-bold text-[0.82rem] px-5 py-2.5 rounded-xl shadow-sm inline-flex items-center justify-center">
-                        View Reports
+                        عرض التقارير
                     </Link>
                     <button className="flex-1 sm:flex-none bg-midnight hover:bg-[#1a2b4b] transition-colors text-white font-bold text-[0.82rem] px-5 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-2">
-                        <Plus size={16} /> New Transaction
+                        <Plus size={16} /> معاملة جديدة
                     </button>
                 </div>
             </div>
 
             {/* KPI Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                <KpiCard title="Total Revenue (YTD)" value={`AED ${paidRevenue.toLocaleString('ar-AE')}`} delta="Paid invoices this year" trend="up" colorHex="#00CFFF" icon={<TrendingUp />} />
-                <KpiCard title="Active Leases" value={activeLeasesCount.toLocaleString('ar-AE')} delta="Leases with active status" trend="up" colorHex="#03a07a" icon={<Building2 />} />
-                <KpiCard title="Low Stock Alerts" value={activeItemsCount.toLocaleString('ar-AE')} delta="Active items" trend="warn" colorHex="#EF476F" icon={<AlertTriangle />} />
-                <KpiCard title="Pending Invoices" value={`AED ${pendingAmount.toLocaleString('ar-AE')}`} delta="Unpaid + partial balance" trend="neutral" colorHex="#6C5CE7" icon={<FileText />} />
+                <KpiCard title="إجمالي الإيرادات" value={`AED ${paidRevenue.toLocaleString('ar-AE')}`} delta="الفواتير المدفوعة هذا العام" trend="up" colorHex="#00CFFF" icon={<TrendingUp />} />
+                <KpiCard title="الإيجارات النشطة" value={activeLeasesCount.toLocaleString('ar-AE')} delta="الإيجارات بحالة نشطة" trend="up" colorHex="#03a07a" icon={<Building2 />} />
+                <KpiCard title="تنبيهات المخزون" value={activeItemsCount.toLocaleString('ar-AE')} delta="الأصناف النشطة" trend="warn" colorHex="#EF476F" icon={<AlertTriangle />} />
+                <KpiCard title="الفواتير المعلقة" value={`AED ${pendingAmount.toLocaleString('ar-AE')}`} delta="غير مدفوعة + جزئية" trend="neutral" colorHex="#6C5CE7" icon={<FileText />} />
             </div>
 
             {/* Main Grid */}
@@ -172,11 +172,11 @@ const DashboardScreen: React.FC = () => {
                 <div className="lg:col-span-8 flex flex-col gap-6">
                     <div className="bg-surface-card border border-border rounded-[20px] p-6 shadow-sm flex flex-col h-[350px]">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="font-nunito font-extrabold text-lg text-midnight">Revenue Overview</h2>
+                            <h2 className="font-nunito font-extrabold text-lg text-midnight">نظرة عامة على الإيرادات</h2>
                             <select className="bg-surface-bg border border-border rounded-lg px-3 py-1 text-xs font-bold text-content-2 outline-none cursor-pointer">
-                                <option>Last 30 Days</option>
-                                <option>This Quarter</option>
-                                <option>This Year</option>
+                                <option>آخر 30 يوم</option>
+                                <option>هذا الربع</option>
+                                <option>هذا العام</option>
                             </select>
                         </div>
                         <div className="flex-1 rounded-xl bg-surface-bg/50">
@@ -194,19 +194,19 @@ const DashboardScreen: React.FC = () => {
 
                     <div className="bg-surface-card border border-border rounded-[20px] p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-5">
-                            <h2 className="font-nunito font-extrabold text-lg text-midnight">Action Required</h2>
+                            <h2 className="font-nunito font-extrabold text-lg text-midnight">يحتاج متابعة</h2>
                             <button className="text-cyan text-sm font-bold flex items-center gap-1 hover:text-[#00c5db] transition-colors">
-                                View All <ChevronRight size={16} />
+                                عرض الكل <ChevronRight size={16} />
                             </button>
                         </div>
                         <DataTable
                             data={actionRequired}
                             columns={[
-                                { header: 'Invoice ID', accessorKey: 'id', className: 'font-bold text-midnight' },
-                                { header: 'Client', accessorKey: 'client' },
-                                { header: 'Date', accessorKey: 'date' },
-                                { header: 'Amount', accessorKey: 'amount', className: 'font-bold' },
-                                { header: 'Status', accessorKey: (row) => <StatusBadge text={row.status} variant={row.status === 'Overdue' ? 'red' : 'warn'} /> },
+                                { header: 'رقم الفاتورة', accessorKey: 'id', className: 'font-bold text-midnight' },
+                                { header: 'العميل', accessorKey: 'client' },
+                                { header: 'التاريخ', accessorKey: 'date' },
+                                { header: 'المبلغ', accessorKey: 'amount', className: 'font-bold' },
+                                { header: 'الحالة', accessorKey: (row) => <StatusBadge text={row.status} variant={row.status === 'متأخرة' ? 'red' : 'warn'} /> },
                             ]}
                         />
                     </div>
@@ -214,16 +214,16 @@ const DashboardScreen: React.FC = () => {
 
                 <div className="lg:col-span-4 flex flex-col gap-6">
                     <div className="bg-surface-card border border-border rounded-[20px] p-6 shadow-sm">
-                        <h2 className="font-nunito font-extrabold text-lg text-midnight mb-5">Quick Actions</h2>
+                        <h2 className="font-nunito font-extrabold text-lg text-midnight mb-5">إجراءات سريعة</h2>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
-                            <ActionButton icon={<Plus className="text-cyan" />} title="Create Invoice" subtitle="ZATCA B2B / B2C" />
-                            <ActionButton icon={<Users className="text-purple" />} title="Add Client" subtitle="CRM Module" />
-                            <ActionButton icon={<Settings className="text-content-3" />} title="System Settings" subtitle="Configurations" />
+                            <ActionButton icon={<Plus className="text-cyan" />} title="إنشاء فاتورة" subtitle="ZATCA B2B / B2C" />
+                            <ActionButton icon={<Users className="text-purple" />} title="إضافة عميل" subtitle="وحدة إدارة العملاء" />
+                            <ActionButton icon={<Settings className="text-content-3" />} title="إعدادات النظام" subtitle="الإعدادات" />
                         </div>
                     </div>
 
                     <div className="bg-surface-card border border-border rounded-[20px] p-6 shadow-sm flex-1">
-                        <h2 className="font-nunito font-extrabold text-lg text-midnight mb-6">Recent Activity</h2>
+                        <h2 className="font-nunito font-extrabold text-lg text-midnight mb-6">النشاط الأخير</h2>
                         <div className="relative">
                             <div className="absolute top-2 bottom-2 start-[11px] w-px bg-border/60" />
                             <div className="space-y-6">
@@ -235,7 +235,7 @@ const DashboardScreen: React.FC = () => {
                                             <div className="w-1.5 h-1.5 bg-white rounded-full" />
                                         </div>
                                         <div className="flex-1 mt-0.5">
-                                            <p className="text-[0.82rem] font-bold text-content">{entry.action || 'Activity'}</p>
+                                            <p className="text-[0.82rem] font-bold text-content">{entry.action || 'نشاط'}</p>
                                             <p className="text-[0.75rem] text-content-2 mt-0.5">{entry.table_name || '—'}</p>
                                             <p className="text-[0.68rem] font-bold text-content-4 mt-1 opacity-70 uppercase tracking-wide">{new Date(entry.created_at).toLocaleString('ar-AE')}</p>
                                         </div>
@@ -252,7 +252,7 @@ const DashboardScreen: React.FC = () => {
                         )}
                         {error && <p className="text-xs text-red-500 mt-3">{error}</p>}
                         <button className="w-full mt-6 py-2 border border-border rounded-xl text-[0.8rem] font-bold text-content-2 hover:bg-surface-bg-2 transition-colors">
-                            Load More
+                            تحميل المزيد
                         </button>
                     </div>
                 </div>

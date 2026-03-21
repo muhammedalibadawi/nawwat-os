@@ -47,7 +47,7 @@ const POSScreen: React.FC = () => {
             name: item.name,
             sku: item.sku,
             price: Number(item.selling_price ?? 0),
-            category: 'General',
+            category: 'عام',
             stock: 0,
           }));
           setProducts(mapped);
@@ -68,8 +68,8 @@ const POSScreen: React.FC = () => {
   }, [user?.tenant_id]);
 
   const categories = useMemo(() => {
-    const set = new Set<string>(['All']);
-    products.forEach((p) => set.add(p.category || 'General'));
+    const set = new Set<string>(['الكل']);
+    products.forEach((p) => set.add(p.category || 'عام'));
     return Array.from(set);
   }, [products]);
 
@@ -77,7 +77,7 @@ const POSScreen: React.FC = () => {
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.sku.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCat = activeCategory === 'All' || p.category === activeCategory;
+      const matchesCat = activeCategory === 'الكل' || p.category === activeCategory;
       return matchesSearch && matchesCat;
     });
   }, [products, searchQuery, activeCategory]);
@@ -139,7 +139,7 @@ const POSScreen: React.FC = () => {
             <ShoppingCart size={18} />
           </div>
           <div>
-            <h1 className="font-nunito font-extrabold text-midnight text-[1.1rem] leading-none">Point of Sale</h1>
+            <h1 className="font-nunito font-extrabold text-midnight text-[1.1rem] leading-none">نقطة البيع</h1>
             <p className="text-[0.68rem] text-content-3 font-bold mt-0.5 uppercase tracking-wide">{branchName}</p>
           </div>
         </div>
@@ -147,7 +147,7 @@ const POSScreen: React.FC = () => {
         {offlineQueue.length > 0 && (
           <div className="flex items-center gap-2 bg-warning-dim text-warning px-3 py-1.5 rounded-full text-xs font-bold border border-warning/20 shadow-sm animate-pulse-slow">
             <WifiOff size={14} />
-            {offlineQueue.length} Orders Pending Sync
+            {offlineQueue.length} طلب بانتظار المزامنة
           </div>
         )}
       </div>
@@ -166,7 +166,7 @@ const POSScreen: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search products by name or SKU..."
+                placeholder="ابحث عن منتج..."
                 className="w-full bg-surface-card border border-border rounded-xl ps-11 pe-4 py-3 text-sm text-content placeholder:text-content-4 outline-none transition-colors focus:border-cyan/50 focus:ring-2 focus:ring-cyan-dim shadow-sm"
               />
             </div>
@@ -234,13 +234,13 @@ const POSScreen: React.FC = () => {
         <div className="w-[360px] xl:w-[420px] bg-surface-card border-s border-border flex flex-col shadow-[-4px_0_24px_rgba(0,0,0,0.02)] shrink-0 z-10">
 
           <div className="p-5 border-b border-border flex items-center justify-between bg-surface-bg/50 shrink-0">
-            <h2 className="font-nunito font-extrabold text-lg text-midnight">Current Order</h2>
+            <h2 className="font-nunito font-extrabold text-lg text-midnight">الطلب الحالي</h2>
             <button
               onClick={clearCart}
               disabled={cart.length === 0}
               className="text-xs font-bold text-danger/80 hover:text-danger disabled:opacity-30 transition-colors cursor-pointer bg-transparent border-none"
             >
-              Clear All
+              مسح الكل
             </button>
           </div>
 
@@ -248,8 +248,8 @@ const POSScreen: React.FC = () => {
             {cart.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-content-4 opacity-70">
                 <ShoppingCart size={48} strokeWidth={1.5} className="mb-4" />
-                <p className="font-bold text-sm">Cart is empty</p>
-                <p className="text-xs mt-1">Select products to start building an order.</p>
+                <p className="font-bold text-sm">السلة فارغة</p>
+                <p className="text-xs mt-1">اختر منتجات لبدء إنشاء الطلب.</p>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
@@ -295,7 +295,7 @@ const POSScreen: React.FC = () => {
                   onClick={() => setPaymentMethod('cash')}
                   className={`py-2 rounded-lg text-xs font-bold border ${paymentMethod === 'cash' ? 'bg-cyan-dim border-cyan text-midnight' : 'bg-white border-border text-content-2'}`}
                 >
-                  كاش 💵
+                  نقداً 💵
                 </button>
                 <button
                   onClick={() => setPaymentMethod('card')}
@@ -325,16 +325,16 @@ const POSScreen: React.FC = () => {
             </div>
             <div className="flex flex-col gap-2.5 mb-5 text-[0.85rem]">
               <div className="flex justify-between items-center text-content-2">
-                <span className="font-bold">Subtotal</span>
+                <span className="font-bold">المجموع</span>
                 <span className="font-bold text-midnight">AED {subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between items-center text-content-2">
-                <span className="font-bold">VAT (15%)</span>
+                <span className="font-bold">ضريبة القيمة المضافة (15%)</span>
                 <span className="font-bold text-midnight">AED {vatTotal.toFixed(2)}</span>
               </div>
               <div className="h-px w-full bg-border my-1" />
               <div className="flex justify-between items-end">
-                <span className="font-extrabold text-midnight text-lg">Total</span>
+                <span className="font-extrabold text-midnight text-lg">الإجمالي</span>
                 <span className="font-nunito font-black text-midnight text-2xl text-cyan-600">AED {grandTotal.toFixed(2)}</span>
               </div>
             </div>
@@ -345,7 +345,7 @@ const POSScreen: React.FC = () => {
               className="w-full relative group overflow-hidden bg-midnight text-cyan rounded-xl py-4 flex items-center justify-center gap-2 font-nunito font-black text-[1.1rem] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:shadow-[0_8px_25px_rgba(0,229,255,0.25)] hover:-translate-y-1 active:translate-y-0"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-cyan/0 via-cyan/20 to-cyan/0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
-              Complete Sale
+              إتمام البيع
               <div className="w-6 h-6 rounded-full bg-cyan text-midnight flex items-center justify-center ms-1">
                 <CheckCircle size={14} strokeWidth={3} />
               </div>
@@ -372,9 +372,9 @@ const POSScreen: React.FC = () => {
                 <CheckCircle size={40} strokeWidth={2.5} />
               </div>
 
-              <h2 className="font-nunito font-extrabold text-2xl text-midnight mb-2 relative z-10">Payment Successful!</h2>
+              <h2 className="font-nunito font-extrabold text-2xl text-midnight mb-2 relative z-10">تم الدفع بنجاح!</h2>
               <p className="text-content-3 text-sm font-bold mb-6 max-w-[250px] mx-auto">
-                Order <span className="text-midnight font-extrabold">{lastOrderId}</span> has been completed and saved.
+                تم إكمال الطلب <span className="text-midnight font-extrabold">{lastOrderId}</span> وحفظه بنجاح.
               </p>
 
               <div className="bg-white p-3 rounded-xl mb-6 shadow-sm border border-border inline-block flex-col items-center justify-center text-center">
@@ -385,7 +385,7 @@ const POSScreen: React.FC = () => {
                   includeMargin={false}
                 />
                 <div className="text-[0.6rem] text-content-4 mt-3 max-w-[160px] mx-auto uppercase font-bold tracking-wide">
-                  ZATCA Phase 2 E-Invoice
+                  ZATCA الفاتورة الإلكترونية - المرحلة الثانية
                 </div>
               </div>
 
@@ -393,7 +393,7 @@ const POSScreen: React.FC = () => {
                 onClick={() => setShowModal(false)}
                 className="w-full bg-surface-bg hover:bg-surface-bg-2 border border-border text-midnight font-bold text-[0.9rem] py-3.5 rounded-xl transition-colors shadow-sm"
               >
-                New Transaction
+                معاملة جديدة
               </button>
             </motion.div>
           </div>

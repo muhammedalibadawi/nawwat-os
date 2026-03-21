@@ -112,7 +112,7 @@ const CRMScreen: React.FC = () => {
     return (
         <div className="p-6 space-y-4">
             <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-black text-[#071C3B]">CRM Contacts</h1>
+                <h1 className="text-2xl font-black text-[#071C3B]">جهات الاتصال</h1>
                 <button onClick={openCreate} className="px-4 py-2 rounded-lg bg-[#071C3B] text-white font-bold">إضافة عميل</button>
             </div>
 

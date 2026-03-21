@@ -116,7 +116,7 @@ export const Topbar: React.FC = () => {
                 <input
                     ref={searchInputRef}
                     type="text"
-                    placeholder="Search modules, transactions…"
+                    placeholder="ابحث في النظام..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onFocus={() => setShowResults(true)}
@@ -137,7 +137,7 @@ export const Topbar: React.FC = () => {
             {/* Status Pill */}
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-success-dim border border-success/20 rounded-full text-[0.71rem] font-bold text-success me-3 whitespace-nowrap">
                 <div className="w-1.5 h-1.5 bg-success rounded-full animate-pulse" />
-                All Systems Online
+                كل الأنظمة تعمل
             </div>
 
             {/* Action Icons */}
