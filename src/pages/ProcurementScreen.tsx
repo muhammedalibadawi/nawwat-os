@@ -30,7 +30,12 @@ export default function ProcurementScreen() {
     const [statusFilter, setStatusFilter] = useState<'all' | PoStatus>('all');
     const [showPoModal, setShowPoModal] = useState(false);
     const [showExpModal, setShowExpModal] = useState(false);
-    const [poForm, setPoForm] = useState<any>({ supplier_id: '', issue_date: '', expected_date: '', lines: [{ item_id: '', qty: 1, price: 0 }] });
+    const [poForm, setPoForm] = useState<any>({
+        supplier_id: '',
+        issue_date: '',
+        expected_delivery_date: '',
+        lines: [{ item_id: '', qty: 1, price: 0 }],
+    });
     const [expForm, setExpForm] = useState<any>({ description: '', category: '', amount: '', expense_date: '' });
 
     const [receiptPo, setReceiptPo] = useState<any | null>(null);
@@ -107,19 +112,31 @@ export default function ProcurementScreen() {
     const savePo = async () => {
         if (!user?.tenant_id) return;
         try {
-            const { data: po, error: poErr } = await supabase
-                .from('purchase_orders')
-                .insert({
-                    tenant_id: user.tenant_id,
-                    supplier_id: poForm.supplier_id || null,
-                    issue_date: poForm.issue_date || null,
-                    expected_date: poForm.expected_date || null,
-                    total_amount: poTotal,
-                    status: 'draft',
-                })
-                .select('id')
-                .single();
+            const basePayload: Record<string, unknown> = {
+                tenant_id: user.tenant_id,
+                supplier_id: poForm.supplier_id || null,
+                issue_date: poForm.issue_date || null,
+                total_amount: poTotal,
+                status: 'draft',
+            };
+            if (poForm.expected_delivery_date) {
+                basePayload.expected_delivery_date = poForm.expected_delivery_date;
+            }
+            let { data: po, error: poErr } = await supabase.from('purchase_orders').insert(basePayload).select('id').single();
+            if (
+                poErr &&
+                poForm.expected_delivery_date &&
+                /expected_delivery_date|Could not find.*column/i.test(String(poErr.message || ''))
+            ) {
+                const fallback = { ...basePayload };
+                delete fallback.expected_delivery_date;
+                fallback.issue_date = poForm.issue_date || poForm.expected_delivery_date || null;
+                const retry = await supabase.from('purchase_orders').insert(fallback).select('id').single();
+                po = retry.data;
+                poErr = retry.error;
+            }
             if (poErr) throw poErr;
+            if (!po) throw new Error('تعذر إنشاء أمر الشراء');
             const lines = poForm.lines
                 .filter((l: any) => l.item_id)
                 .map((l: any) => ({
@@ -135,7 +152,12 @@ export default function ProcurementScreen() {
                 if (liErr) throw liErr;
             }
             setShowPoModal(false);
-            setPoForm({ supplier_id: '', issue_date: '', expected_date: '', lines: [{ item_id: '', qty: 1, price: 0 }] });
+            setPoForm({
+                supplier_id: '',
+                issue_date: '',
+                expected_delivery_date: '',
+                lines: [{ item_id: '', qty: 1, price: 0 }],
+            });
             await load();
         } catch (err: any) {
             setError(err?.message ?? 'فشل حفظ أمر الشراء');
@@ -401,7 +423,12 @@ export default function ProcurementScreen() {
                                 ))}
                             </select>
                             <input type="date" value={poForm.issue_date} onChange={(e) => setPoForm({ ...poForm, issue_date: e.target.value })} className="border rounded-lg px-3 py-2" />
-                            <input type="date" value={poForm.expected_date} onChange={(e) => setPoForm({ ...poForm, expected_date: e.target.value })} className="border rounded-lg px-3 py-2" />
+                            <input
+                                type="date"
+                                value={poForm.expected_delivery_date}
+                                onChange={(e) => setPoForm({ ...poForm, expected_delivery_date: e.target.value })}
+                                className="border rounded-lg px-3 py-2"
+                            />
                         </div>
                         {poForm.lines.map((l: any, idx: number) => (
                             <div key={idx} className="grid grid-cols-1 md:grid-cols-3 gap-2">
