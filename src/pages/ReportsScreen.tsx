@@ -1,0 +1,398 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { FileText } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+function exportExcel(rows: Record<string, unknown>[], fileName: string) {
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'تقرير');
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
+}
+
+export default function ReportsScreen() {
+    const { user } = useAuth();
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [salesByMonth, setSalesByMonth] = useState<{ month: string; total: number }[]>([]);
+    const [topProducts, setTopProducts] = useState<{ name: string; qty: number }[]>([]);
+    const [contactsByType, setContactsByType] = useState<{ type: string; count: number }[]>([]);
+    const [lowStockItems, setLowStockItems] = useState<any[]>([]);
+
+    const [pl, setPl] = useState({ revenue: 0, expenses: 0, net: 0 });
+    const [plMonthly, setPlMonthly] = useState<{ month: string; revenue: number; expenses: number }[]>([]);
+    const [receivables, setReceivables] = useState<any[]>([]);
+    const [inventoryVal, setInventoryVal] = useState<{ rows: any[]; total: number }>({ rows: [], total: 0 });
+
+    useEffect(() => {
+        const load = async () => {
+            if (!user?.tenant_id) return;
+            setLoading(true);
+            setError('');
+            try {
+                const sixMonthsAgo = new Date();
+                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                const [invRes, itemsRes, contactsRes, expRes, invPaid, stockRes] = await Promise.all([
+                    supabase
+                        .from('invoices')
+                        .select('id,total,created_at,status,issue_date')
+                        .eq('tenant_id', user.tenant_id)
+                        .gte('created_at', sixMonthsAgo.toISOString()),
+                    supabase
+                        .from('invoice_items')
+                        .select('name, item_ref, quantity, unit_price, line_total')
+                        .eq('tenant_id', user.tenant_id),
+                    supabase
+                        .from('contacts')
+                        .select('id,type')
+                        .eq('tenant_id', user.tenant_id),
+                    supabase
+                        .from('expenses')
+                        .select('amount, expense_date, category')
+                        .eq('tenant_id', user.tenant_id),
+                    supabase
+                        .from('invoices')
+                        .select('total, status, created_at')
+                        .eq('tenant_id', user.tenant_id)
+                        .eq('status', 'paid'),
+                    supabase
+                        .from('stock_levels')
+                        .select('item_id, quantity')
+                        .eq('tenant_id', user.tenant_id),
+                ]);
+                if (invRes.error) throw invRes.error;
+                if (itemsRes.error) throw itemsRes.error;
+                if (contactsRes.error) throw contactsRes.error;
+                if (expRes.error) throw expRes.error;
+                if (invPaid.error) throw invPaid.error;
+                if (stockRes.error) throw stockRes.error;
+
+                const monthAgg: Record<string, number> = {};
+                (invRes.data ?? []).forEach((i: any) => {
+                    const key = new Date(i.created_at).toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' });
+                    monthAgg[key] = (monthAgg[key] ?? 0) + Number(i.total ?? 0);
+                });
+                setSalesByMonth(Object.entries(monthAgg).map(([month, total]) => ({ month, total })));
+
+                const topAgg: Record<string, number> = {};
+                (itemsRes.data ?? []).forEach((r: any) => {
+                    const key = r.name || r.item_ref || 'unknown';
+                    topAgg[key] = (topAgg[key] ?? 0) + Number(r.quantity ?? 0);
+                });
+                setTopProducts(
+                    Object.entries(topAgg)
+                        .map(([name, qty]) => ({ name, qty }))
+                        .sort((a, b) => b.qty - a.qty)
+                        .slice(0, 10)
+                );
+
+                const cAgg: Record<string, number> = {};
+                (contactsRes.data ?? []).forEach((c: any) => {
+                    const key = c.type || 'unknown';
+                    cAgg[key] = (cAgg[key] ?? 0) + 1;
+                });
+                setContactsByType(Object.entries(cAgg).map(([type, count]) => ({ type, count })));
+
+                const { data: itemRows, error: itemErr } = await supabase
+                    .from('items')
+                    .select('id,name,reorder_point,cost_price')
+                    .eq('tenant_id', user.tenant_id)
+                    .eq('is_active', true)
+                    .is('deleted_at', null);
+                if (itemErr) throw itemErr;
+                setLowStockItems(itemRows ?? []);
+
+                const revenue = (invPaid.data ?? []).reduce((s: number, r: any) => s + Number(r.total ?? 0), 0);
+                const expenseTotal = (expRes.data ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
+                setPl({ revenue, expenses: expenseTotal, net: revenue - expenseTotal });
+
+                const pm: Record<string, { revenue: number; expenses: number }> = {};
+                (invPaid.data ?? []).forEach((r: any) => {
+                    const key = new Date(r.created_at).toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' });
+                    if (!pm[key]) pm[key] = { revenue: 0, expenses: 0 };
+                    pm[key].revenue += Number(r.total ?? 0);
+                });
+                (expRes.data ?? []).forEach((r: any) => {
+                    const key = r.expense_date
+                        ? new Date(r.expense_date).toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' })
+                        : '—';
+                    if (!pm[key]) pm[key] = { revenue: 0, expenses: 0 };
+                    pm[key].expenses += Number(r.amount ?? 0);
+                });
+                setPlMonthly(Object.entries(pm).map(([month, v]) => ({ month, revenue: v.revenue, expenses: v.expenses })));
+
+                const { data: recInv, error: recErr } = await supabase
+                    .from('invoices')
+                    .select('id, invoice_no, total, amount_paid, status, contact_id, issue_date')
+                    .eq('tenant_id', user.tenant_id)
+                    .in('status', ['unpaid', 'partial', 'sent', 'overdue']);
+                if (recErr) throw recErr;
+                const cids = [...new Set((recInv ?? []).map((r: any) => r.contact_id).filter(Boolean))] as string[];
+                let cmap: Record<string, string> = {};
+                if (cids.length > 0) {
+                    const { data: cts } = await supabase.from('contacts').select('id,name').in('id', cids);
+                    cmap = Object.fromEntries((cts ?? []).map((c: any) => [c.id, c.name]));
+                }
+                const recSorted = (recInv ?? [])
+                    .map((r: any) => ({
+                        ...r,
+                        due: Math.max(0, Number(r.total ?? 0) - Number(r.amount_paid ?? 0)),
+                        contact_name: (r.contact_id && cmap[r.contact_id]) || '—',
+                    }))
+                    .sort((a: any, b: any) => b.due - a.due);
+                setReceivables(recSorted);
+
+                const qtyMap: Record<string, number> = {};
+                (stockRes.data ?? []).forEach((s: any) => {
+                    qtyMap[s.item_id] = (qtyMap[s.item_id] ?? 0) + Number(s.quantity ?? 0);
+                });
+                const invRows = (itemRows ?? []).map((it: any) => {
+                    const q = qtyMap[it.id] ?? 0;
+                    const cost = Number(it.cost_price ?? 0);
+                    return {
+                        id: it.id,
+                        name: it.name,
+                        quantity: q,
+                        cost,
+                        value: q * cost,
+                    };
+                });
+                const totalInv = invRows.reduce((s, r) => s + r.value, 0);
+                setInventoryVal({ rows: invRows, total: totalInv });
+            } catch (err: any) {
+                setError(err?.message ?? 'فشل تحميل التقارير');
+            } finally {
+                setLoading(false);
+            }
+        };
+        load();
+    }, [user?.tenant_id]);
+
+    const inventoryLow = useMemo(() => {
+        return lowStockItems.filter((i) => Number(i.reorder_point ?? 0) > 0);
+    }, [lowStockItems]);
+
+    return (
+        <div className="space-y-6 p-6">
+            <div>
+                <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                    <FileText size={28} className="text-cyan-500" />
+                    التقارير
+                </h1>
+            </div>
+            {loading && <div className="bg-white border rounded-xl p-6 text-center">جاري التحميل...</div>}
+            {!loading && error && <div className="bg-white border rounded-xl p-6 text-center text-red-600">{error}</div>}
+
+            {!loading && !error && (
+                <>
+                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="font-black">أ) تقرير المبيعات (آخر 6 شهور)</h2>
+                            <button
+                                type="button"
+                                onClick={() => exportExcel(salesByMonth as any, 'مبيعات')}
+                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                            >
+                                تصدير Excel
+                            </button>
+                        </div>
+                        <div className="space-y-2">
+                            {salesByMonth.map((r) => (
+                                <div key={r.month} className="flex justify-between text-sm">
+                                    <span>{r.month}</span>
+                                    <span className="font-bold">AED {r.total.toLocaleString('ar-AE')}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="font-black">ب) أكثر المنتجات مبيعاً</h2>
+                            <button
+                                type="button"
+                                onClick={() => exportExcel(topProducts as any, 'اكثر-المنتجات')}
+                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                            >
+                                تصدير Excel
+                            </button>
+                        </div>
+                        <div className="space-y-2">
+                            {topProducts.map((r) => (
+                                <div key={r.name} className="flex justify-between text-sm">
+                                    <span>{r.name}</span>
+                                    <span className="font-bold">{r.qty.toLocaleString('ar-AE')}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="font-black">ج) تقرير العملاء حسب النوع</h2>
+                            <button
+                                type="button"
+                                onClick={() => exportExcel(contactsByType as any, 'عملاء-حسب-النوع')}
+                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                            >
+                                تصدير Excel
+                            </button>
+                        </div>
+                        <div className="space-y-2">
+                            {contactsByType.map((r) => (
+                                <div key={r.type} className="flex justify-between text-sm">
+                                    <span>{r.type}</span>
+                                    <span className="font-bold">{r.count.toLocaleString('ar-AE')}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="font-black">د) تقرير المخزون (reorder_point)</h2>
+                            <button
+                                type="button"
+                                onClick={() => exportExcel(inventoryLow as any, 'مخزون-تنبيه')}
+                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                            >
+                                تصدير Excel
+                            </button>
+                        </div>
+                        <div className="space-y-2">
+                            {inventoryLow.map((r: any) => (
+                                <div key={r.id} className="flex justify-between text-sm">
+                                    <span>{r.name || r.id}</span>
+                                    <span className="font-bold">{Number(r.reorder_point || 0).toLocaleString('ar-AE')}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                            <h2 className="font-black">هـ) تقرير الأرباح والخسائر (مبسط)</h2>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    exportExcel(
+                                        [
+                                            { بند: 'الإيرادات', مبلغ: pl.revenue },
+                                            { بند: 'المصروفات', مبلغ: pl.expenses },
+                                            { بند: 'صافي الربح', مبلغ: pl.net },
+                                        ],
+                                        'PL'
+                                    )
+                                }
+                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                            >
+                                تصدير Excel
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="rounded-xl bg-emerald-50 p-4 text-center">
+                                <p className="text-xs text-gray-500 font-bold">الإيرادات</p>
+                                <p className="text-2xl font-black text-emerald-700">AED {pl.revenue.toLocaleString('ar-AE')}</p>
+                            </div>
+                            <div className="rounded-xl bg-red-50 p-4 text-center">
+                                <p className="text-xs text-gray-500 font-bold">المصروفات</p>
+                                <p className="text-2xl font-black text-red-700">AED {pl.expenses.toLocaleString('ar-AE')}</p>
+                            </div>
+                            <div className="rounded-xl bg-cyan-50 p-4 text-center">
+                                <p className="text-xs text-gray-500 font-bold">صافي الربح</p>
+                                <p className="text-2xl font-black text-[#071C3B]">AED {pl.net.toLocaleString('ar-AE')}</p>
+                            </div>
+                        </div>
+                        <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={plMonthly}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="month" />
+                                    <YAxis />
+                                    <Tooltip />
+                                    <Bar dataKey="revenue" fill="#00CFFF" name="إيرادات" />
+                                    <Bar dataKey="expenses" fill="#EF476F" name="مصروفات" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </section>
+
+                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="font-black">و) تقرير المدينون (Receivables)</h2>
+                            <button
+                                type="button"
+                                onClick={() => exportExcel(receivables as any, 'المدينون')}
+                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                            >
+                                تصدير Excel
+                            </button>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-gray-500">
+                                        <th className="text-start py-2">العميل</th>
+                                        <th className="text-start">رقم الفاتورة</th>
+                                        <th className="text-start">المستحق</th>
+                                        <th className="text-start">الحالة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {receivables.map((r: any) => (
+                                        <tr key={r.id} className="border-t">
+                                            <td className="py-2">{r.contact_name}</td>
+                                            <td>{r.invoice_no}</td>
+                                            <td className="font-bold">AED {r.due.toFixed(2)}</td>
+                                            <td>{r.status}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                        <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                            <h2 className="font-black">ز) تقرير قيمة المخزون</h2>
+                            <button
+                                type="button"
+                                onClick={() => exportExcel(inventoryVal.rows as any, 'قيمة-المخزون')}
+                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                            >
+                                تصدير Excel
+                            </button>
+                        </div>
+                        <p className="text-lg font-black text-[#071C3B] mb-4">
+                            إجمالي قيمة المخزون: AED {inventoryVal.total.toLocaleString('ar-AE')}
+                        </p>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-gray-500">
+                                        <th className="text-start py-2">الصنف</th>
+                                        <th className="text-start">الكمية</th>
+                                        <th className="text-start">تكلفة</th>
+                                        <th className="text-start">القيمة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {inventoryVal.rows.map((r) => (
+                                        <tr key={r.id} className="border-t">
+                                            <td className="py-2">{r.name}</td>
+                                            <td>{r.quantity.toLocaleString('ar-AE')}</td>
+                                            <td>{r.cost.toFixed(2)}</td>
+                                            <td className="font-bold">AED {r.value.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </>
+            )}
+        </div>
+    );
+}
