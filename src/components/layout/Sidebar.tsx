@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAppContext } from '../../store/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { ROLE_PERMISSIONS } from '../../config/permissions';
-import { LayoutDashboard, BarChart2, MonitorSmartphone, Users, Settings, MessageSquare, FileText, Network, Calculator, Truck, Briefcase, LogOut, Lock, Package } from 'lucide-react';
+import { LayoutDashboard, BarChart2, MonitorSmartphone, Users, Settings, MessageSquare, FileText, Network, Calculator, Truck, Briefcase, LogOut, Lock, Package, ShoppingCart, DollarSign } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
     const { sidebarMini } = useAppContext();
@@ -67,11 +67,17 @@ export const Sidebar: React.FC = () => {
                 <NavItem to="/inventory" title="Inventory" icon={Package}>
                     Inventory
                 </NavItem>
+                <NavItem to="/procurement" title="المشتريات" icon={ShoppingCart}>
+                    المشتريات
+                </NavItem>
                 <NavItem to="/crm" title="CRM" icon={Users}>
                     CRM
                 </NavItem>
                 <NavItem to="/hr" title="HR" icon={Briefcase}>
                     Human Resources
+                </NavItem>
+                <NavItem to="/payroll" title="الرواتب" icon={DollarSign}>
+                    الرواتب
                 </NavItem>
                 <NavItem to="/accounting" title="Accounting (GL)" icon={Calculator}>
                     Accounting & GL

@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ROLE_PERMISSIONS } from '../config/permissions';
 
-export function RoleBasedRoute({ children }: { children: React.ReactNode }) {
+export function RoleBasedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { session, user, loading } = useAuth();
   const location = useLocation();
 
@@ -17,6 +17,10 @@ export function RoleBasedRoute({ children }: { children: React.ReactNode }) {
   if (!session) return <Navigate to="/login" replace />;
 
   const role: string = user?.role || 'viewer';
+  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const allowed = ROLE_PERMISSIONS[role] || ['/dashboard'];
   
   // Extract base route (e.g. from '/inventory/products' -> '/inventory')

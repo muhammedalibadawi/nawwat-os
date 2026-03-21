@@ -32,6 +32,7 @@ const BranchesScreen = React.lazy(() => import('./pages/BranchesScreen'));
 const AnalyticsScreen = React.lazy(() => import('./pages/AnalyticsScreen'));
 const InvoicesScreen = React.lazy(() => import('./pages/InvoicesScreen'));
 const ProcurementScreen = React.lazy(() => import('./pages/ProcurementScreen'));
+const PayrollScreen = React.lazy(() => import('./pages/PayrollScreen'));
 const ContactsScreen = React.lazy(() => import('./pages/ContactsScreen'));
 const ReportsScreen = React.lazy(() => import('./pages/ReportsScreen'));
 const SettingsScreen = React.lazy(() => import('./pages/SettingsScreen'));
@@ -111,7 +112,8 @@ export default function App() {
               <Route path="branches" element={<RoleBasedRoute><BranchesScreen /></RoleBasedRoute>} />
               <Route path="analytics" element={<RoleBasedRoute><AnalyticsScreen /></RoleBasedRoute>} />
               <Route path="invoices" element={<RoleBasedRoute><InvoicesScreen /></RoleBasedRoute>} />
-              <Route path="procurement" element={<RoleBasedRoute><ProcurementScreen /></RoleBasedRoute>} />
+              <Route path="procurement" element={<RoleBasedRoute allowedRoles={['owner','master_admin','branch_manager','procurement','accountant']}><ProcurementScreen /></RoleBasedRoute>} />
+              <Route path="payroll" element={<RoleBasedRoute allowedRoles={['owner','master_admin','hr','accountant']}><PayrollScreen /></RoleBasedRoute>} />
               <Route path="contacts" element={<RoleBasedRoute><ContactsScreen /></RoleBasedRoute>} />
               <Route path="calendar" element={<CalendarScreen />} />
               <Route path="chat" element={<ChatScreen />} />

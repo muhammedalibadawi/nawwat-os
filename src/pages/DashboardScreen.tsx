@@ -6,24 +6,26 @@ import { ActionButton } from '../components/ui/ActionButton';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { DataTable } from '../components/ui/DataTable';
 import { supabase } from '../lib/supabase';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
     Building2, TrendingUp, AlertTriangle, FileText,
     Plus, Users, Settings, ChevronRight
 } from 'lucide-react';
 
 type InvoiceRow = { id: string; invoice_no: string | null; total: number | null; amount_paid: number | null; status: string | null; created_at: string };
-type LeaseRow = { id: string };
-type ItemRow = { id: string };
-type AuditRow = { id: string; action: string | null; entity_type: string | null; created_at: string };
+type AuditRow = { id: string; action: string | null; table_name: string | null; created_at: string };
 
 const DashboardScreen: React.FC = () => {
     const { user } = useAuth();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
-    const [leases, setLeases] = useState<LeaseRow[]>([]);
-    const [items, setItems] = useState<ItemRow[]>([]);
+    const [paidRevenue, setPaidRevenue] = useState<number>(0);
+    const [activeLeasesCount, setActiveLeasesCount] = useState<number>(0);
+    const [activeItemsCount, setActiveItemsCount] = useState<number>(0);
+    const [pendingAmount, setPendingAmount] = useState<number>(0);
     const [activity, setActivity] = useState<AuditRow[]>([]);
+    const [actionData, setActionData] = useState<any[]>([]);
+    const [chartRows, setChartRows] = useState<{ month: string; total: number }[]>([]);
 
     const today = new Date().toLocaleDateString('en-AE', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -40,33 +42,71 @@ const DashboardScreen: React.FC = () => {
             setError('');
             try {
                 const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
-                const [paidInv, pendingInv, activeLeases, activeItems, logs] = await Promise.all([
+                const sixMonthsAgo = new Date();
+                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+                const [revenueData, leasesData, stockData, pendingData, activityData, actionRows, chartData] = await Promise.all([
                     supabase
                         .from('invoices')
-                        .select('id,invoice_no,total,amount_paid,status,created_at')
+                        .select('total')
                         .eq('tenant_id', user.tenant_id)
                         .eq('status', 'paid')
                         .gte('created_at', yearStart),
                     supabase
-                        .from('invoices')
-                        .select('id,invoice_no,total,amount_paid,status,created_at')
+                        .from('leases')
+                        .select('*', { count: 'exact', head: true })
                         .eq('tenant_id', user.tenant_id)
-                        .in('status', ['unpaid', 'partial', 'overdue'])
-                        .order('created_at', { ascending: false }),
-                    supabase.from('leases').select('id').eq('tenant_id', user.tenant_id).eq('status', 'active'),
-                    supabase.from('items').select('id').eq('tenant_id', user.tenant_id).eq('is_active', true).is('deleted_at', null),
-                    supabase.from('audit_log').select('id,action,entity_type,created_at').eq('tenant_id', user.tenant_id).order('created_at', { ascending: false }).limit(5),
+                        .eq('status', 'active'),
+                    supabase
+                        .from('items')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('tenant_id', user.tenant_id)
+                        .eq('is_active', true),
+                    supabase
+                        .from('invoices')
+                        .select('total, amount_paid')
+                        .eq('tenant_id', user.tenant_id)
+                        .in('status', ['unpaid', 'partial']),
+                    supabase
+                        .from('audit_log')
+                        .select('id, action, table_name, created_at')
+                        .eq('tenant_id', user.tenant_id)
+                        .order('created_at', { ascending: false })
+                        .limit(5),
+                    supabase
+                        .from('invoices')
+                        .select('id, invoice_no, total, amount_paid, created_at, status')
+                        .eq('tenant_id', user.tenant_id)
+                        .in('status', ['unpaid', 'overdue'])
+                        .order('created_at', { ascending: false })
+                        .limit(5),
+                    supabase
+                        .from('invoices')
+                        .select('total, created_at')
+                        .eq('tenant_id', user.tenant_id)
+                        .eq('status', 'paid')
+                        .gte('created_at', sixMonthsAgo.toISOString()),
                 ]);
-                if (paidInv.error) throw paidInv.error;
-                if (pendingInv.error) throw pendingInv.error;
-                if (activeLeases.error) throw activeLeases.error;
-                if (activeItems.error) throw activeItems.error;
-                if (logs.error) throw logs.error;
+                if (revenueData.error) throw revenueData.error;
+                if (leasesData.error) throw leasesData.error;
+                if (stockData.error) throw stockData.error;
+                if (pendingData.error) throw pendingData.error;
+                if (activityData.error) throw activityData.error;
+                if (actionRows.error) throw actionRows.error;
+                if (chartData.error) throw chartData.error;
                 if (cancelled) return;
-                setInvoices([...(paidInv.data ?? []), ...(pendingInv.data ?? [])] as InvoiceRow[]);
-                setLeases((activeLeases.data ?? []) as LeaseRow[]);
-                setItems((activeItems.data ?? []) as ItemRow[]);
-                setActivity((logs.data ?? []) as AuditRow[]);
+                setPaidRevenue((revenueData.data ?? []).reduce((s: number, r: any) => s + Number(r.total ?? 0), 0));
+                setActiveLeasesCount(leasesData.count ?? 0);
+                setActiveItemsCount(stockData.count ?? 0);
+                setPendingAmount((pendingData.data ?? []).reduce((s: number, r: any) => s + (Number(r.total ?? 0) - Number(r.amount_paid ?? 0)), 0));
+                setActivity((activityData.data ?? []) as AuditRow[]);
+                setActionData((actionRows.data ?? []) as InvoiceRow[]);
+
+                const grouped: Record<string, number> = {};
+                (chartData.data ?? []).forEach((r: any) => {
+                    const key = new Date(r.created_at).toLocaleDateString('ar-AE', { month: 'short', year: '2-digit' });
+                    grouped[key] = (grouped[key] ?? 0) + Number(r.total ?? 0);
+                });
+                setChartRows(Object.entries(grouped).map(([month, total]) => ({ month, total })));
             } catch (err: any) {
                 if (!cancelled) setError(err?.message ?? 'Failed to load dashboard data');
             } finally {
@@ -79,32 +119,15 @@ const DashboardScreen: React.FC = () => {
         };
     }, [user?.tenant_id]);
 
-    const kpis = useMemo(() => {
-        const paidYtd = invoices.filter((i) => i.status === 'paid');
-        const totalRevenue = paidYtd.reduce((sum, i) => sum + Number(i.total ?? 0), 0);
-        const pendingRows = invoices.filter((i) => i.status === 'unpaid' || i.status === 'partial');
-        const pendingAmount = pendingRows.reduce((sum, i) => sum + (Number(i.total ?? 0) - Number(i.amount_paid ?? 0)), 0);
-        return {
-            totalRevenue,
-            activeLeases: leases.length,
-            lowStock: items.length,
-            pendingAmount,
-        };
-    }, [invoices, leases.length, items.length]);
-
     const actionRequired = useMemo(() => {
-        return invoices
-            .filter((i) => i.status === 'unpaid' || i.status === 'overdue')
-            .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
-            .slice(0, 5)
-            .map((i) => ({
+        return actionData.map((i) => ({
                 id: i.invoice_no || i.id,
                 client: '—',
                 date: new Date(i.created_at).toLocaleDateString('ar-AE'),
                 amount: `AED ${Number(i.total ?? 0).toLocaleString('ar-AE')}`,
                 status: i.status === 'overdue' ? 'Overdue' : 'Pending',
             }));
-    }, [invoices]);
+    }, [actionData]);
 
     return (
         <div className="font-arabic flex flex-col gap-6 max-w-[1600px] mx-auto w-full animate-fade-in pb-10">
@@ -137,10 +160,10 @@ const DashboardScreen: React.FC = () => {
 
             {/* KPI Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                <KpiCard title="Total Revenue (YTD)" value={`AED ${kpis.totalRevenue.toLocaleString('ar-AE')}`} delta="Paid invoices this year" trend="up" colorHex="#00CFFF" icon={<TrendingUp />} />
-                <KpiCard title="Active Leases" value={kpis.activeLeases.toLocaleString('ar-AE')} delta="Leases with active status" trend="up" colorHex="#03a07a" icon={<Building2 />} />
-                <KpiCard title="Low Stock Alerts" value={kpis.lowStock.toLocaleString('ar-AE')} delta="Active items (temporary)" trend="warn" colorHex="#EF476F" icon={<AlertTriangle />} />
-                <KpiCard title="Pending Invoices" value={`AED ${kpis.pendingAmount.toLocaleString('ar-AE')}`} delta="Unpaid + partial balance" trend="neutral" colorHex="#6C5CE7" icon={<FileText />} />
+                <KpiCard title="Total Revenue (YTD)" value={`AED ${paidRevenue.toLocaleString('ar-AE')}`} delta="Paid invoices this year" trend="up" colorHex="#00CFFF" icon={<TrendingUp />} />
+                <KpiCard title="Active Leases" value={activeLeasesCount.toLocaleString('ar-AE')} delta="Leases with active status" trend="up" colorHex="#03a07a" icon={<Building2 />} />
+                <KpiCard title="Low Stock Alerts" value={activeItemsCount.toLocaleString('ar-AE')} delta="Active items" trend="warn" colorHex="#EF476F" icon={<AlertTriangle />} />
+                <KpiCard title="Pending Invoices" value={`AED ${pendingAmount.toLocaleString('ar-AE')}`} delta="Unpaid + partial balance" trend="neutral" colorHex="#6C5CE7" icon={<FileText />} />
             </div>
 
             {/* Main Grid */}
@@ -156,11 +179,16 @@ const DashboardScreen: React.FC = () => {
                                 <option>This Year</option>
                             </select>
                         </div>
-                        <div className="flex-1 border-2 border-dashed border-border rounded-xl flex items-center justify-center bg-surface-bg/50">
-                            <div className="text-center text-content-4">
-                                <BarChartPlaceholder />
-                                <p className="mt-4 text-sm font-bold opacity-60">Chart Integration Pending (Recharts)</p>
-                            </div>
+                        <div className="flex-1 rounded-xl bg-surface-bg/50">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={chartRows}>
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="month" />
+                                    <YAxis />
+                                    <Tooltip formatter={(v: any) => `AED ${Number(v).toLocaleString('ar-AE')}`} />
+                                    <Line type="monotone" dataKey="total" stroke="#00CFFF" strokeWidth={3} />
+                                </LineChart>
+                            </ResponsiveContainer>
                         </div>
                     </div>
 
@@ -208,14 +236,20 @@ const DashboardScreen: React.FC = () => {
                                         </div>
                                         <div className="flex-1 mt-0.5">
                                             <p className="text-[0.82rem] font-bold text-content">{entry.action || 'Activity'}</p>
-                                            <p className="text-[0.75rem] text-content-2 mt-0.5">{entry.entity_type || '—'}</p>
+                                            <p className="text-[0.75rem] text-content-2 mt-0.5">{entry.table_name || '—'}</p>
                                             <p className="text-[0.68rem] font-bold text-content-4 mt-1 opacity-70 uppercase tracking-wide">{new Date(entry.created_at).toLocaleString('ar-AE')}</p>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         </div>
-                        {loading && <p className="text-xs text-content-4 mt-3">Loading...</p>}
+                        {loading && (
+                            <div className="animate-pulse space-y-3 mt-3">
+                                <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                                <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                            </div>
+                        )}
                         {error && <p className="text-xs text-red-500 mt-3">{error}</p>}
                         <button className="w-full mt-6 py-2 border border-border rounded-xl text-[0.8rem] font-bold text-content-2 hover:bg-surface-bg-2 transition-colors">
                             Load More
@@ -227,14 +261,5 @@ const DashboardScreen: React.FC = () => {
         </div>
     );
 };
-
-const BarChartPlaceholder = () => (
-    <svg width="120" height="80" viewBox="0 0 120 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-20 inline-block">
-        <rect x="10" y="40" width="16" height="40" rx="4" fill="currentColor" />
-        <rect x="36" y="20" width="16" height="60" rx="4" fill="currentColor" />
-        <rect x="62" y="50" width="16" height="30" rx="4" fill="currentColor" />
-        <rect x="88" y="10" width="16" height="70" rx="4" fill="currentColor" />
-    </svg>
-);
 
 export default DashboardScreen;
