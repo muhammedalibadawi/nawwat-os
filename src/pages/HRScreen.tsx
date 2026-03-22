@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { generatePinSalt, sha256Hex } from '../utils/pinHash';
 
 interface UserRow {
     id: string;
@@ -34,6 +35,11 @@ const HRScreen: React.FC = () => {
     const [showModal, setShowModal] = useState(false);
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState({ full_name: '', email: '', password: '', role: '', default_branch: '' });
+
+    const [pinTarget, setPinTarget] = useState<UserRow | null>(null);
+    const [pinInput, setPinInput] = useState('');
+    const [pinSaving, setPinSaving] = useState(false);
+    const [pinError, setPinError] = useState('');
 
     const loadData = async () => {
         if (!user?.tenant_id) return;
@@ -129,6 +135,39 @@ const HRScreen: React.FC = () => {
         }
     };
 
+    const saveEmployeePin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user?.tenant_id || !pinTarget) return;
+        const pin = pinInput.trim();
+        if (!/^\d{4,6}$/.test(pin)) {
+            setPinError('أدخل 4 إلى 6 أرقام فقط');
+            return;
+        }
+        setPinSaving(true);
+        setPinError('');
+        try {
+            const salt = generatePinSalt();
+            const pin_hash = await sha256Hex(pin + salt);
+            const { error: upErr } = await supabase.from('employee_pins').upsert(
+                {
+                    tenant_id: user.tenant_id,
+                    user_id: pinTarget.id,
+                    salt,
+                    pin_hash,
+                    updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'tenant_id,user_id' }
+            );
+            if (upErr) throw upErr;
+            setPinTarget(null);
+            setPinInput('');
+        } catch (err: any) {
+            setPinError(err?.message ?? 'فشل حفظ الرمز');
+        } finally {
+            setPinSaving(false);
+        }
+    };
+
     return (
         <div className="p-6 space-y-4">
             <div className="flex items-center justify-between">
@@ -156,6 +195,7 @@ const HRScreen: React.FC = () => {
                                 <th className="p-3 text-start">الدور</th>
                                 <th className="p-3 text-start">الفرع</th>
                                 <th className="p-3 text-start">الحالة</th>
+                                <th className="p-3 text-start">نقطة البيع</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -166,10 +206,61 @@ const HRScreen: React.FC = () => {
                                     <td className="p-3">{roleByUser[r.id] || '—'}</td>
                                     <td className="p-3">{r.default_branch ? (branchNameById[r.default_branch] || r.default_branch) : '—'}</td>
                                     <td className="p-3">{r.is_active ? 'نشط' : 'غير نشط'}</td>
+                                    <td className="p-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setPinError('');
+                                                setPinInput('');
+                                                setPinTarget(r);
+                                            }}
+                                            className="px-3 py-1.5 rounded-lg bg-cyan-50 text-cyan-900 font-bold text-xs border border-cyan-200"
+                                        >
+                                            تعيين PIN
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
+                </div>
+            )}
+
+            {pinTarget && (
+                <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4" dir="rtl">
+                    <form onSubmit={saveEmployeePin} className="w-full max-w-md bg-white rounded-xl p-5 space-y-3 shadow-xl">
+                        <h2 className="text-lg font-black">تعيين PIN — {pinTarget.full_name || pinTarget.email}</h2>
+                        <p className="text-xs text-gray-500">
+                            4–6 أرقام. للدخول إلى نقطة البيع يجب أن يكون الرمز <strong>4 أرقام</strong> بالضبط.
+                        </p>
+                        <input
+                            type="password"
+                            inputMode="numeric"
+                            pattern="\d*"
+                            autoComplete="new-password"
+                            className="w-full border rounded-lg px-3 py-2 tracking-widest"
+                            placeholder="••••"
+                            value={pinInput}
+                            onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        />
+                        {pinError ? <p className="text-sm text-red-600 font-bold">{pinError}</p> : null}
+                        <div className="flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPinTarget(null);
+                                    setPinInput('');
+                                    setPinError('');
+                                }}
+                                className="px-4 py-2 border rounded-lg"
+                            >
+                                إلغاء
+                            </button>
+                            <button type="submit" disabled={pinSaving} className="px-4 py-2 bg-[#071C3B] text-white rounded-lg font-bold">
+                                {pinSaving ? 'جارٍ الحفظ...' : 'حفظ'}
+                            </button>
+                        </div>
+                    </form>
                 </div>
             )}
 

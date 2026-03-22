@@ -8,6 +8,7 @@ import { usePosStore, Product, CartItem } from '../store/PosStore';
 import { generateZatcaQR } from '../utils/zatcaQR';
 import { supabase } from '../lib/supabase';
 import { fetchTenantFinance } from '../services/tenantFinance';
+import { EmployeePinPad, readPinSessionValid } from '../components/pos/EmployeePinPad';
 
 /** Matches public.items columns used by POS (no stock on items — use stock_levels). */
 const ITEMS_SELECT =
@@ -33,6 +34,11 @@ const POSScreen: React.FC = () => {
   const [tenantCurrency, setTenantCurrency] = useState('AED');
   const [countryLabel, setCountryLabel] = useState('UAE');
   const [quickProducts, setQuickProducts] = useState<Product[]>([]);
+  const [cashierUnlocked, setCashierUnlocked] = useState(() => readPinSessionValid());
+
+  useEffect(() => {
+    setCashierUnlocked(readPinSessionValid());
+  }, [user?.tenant_id]);
 
   useEffect(() => {
     void initStore();
@@ -344,6 +350,23 @@ const POSScreen: React.FC = () => {
       vatTotal.toFixed(2)
     );
   }, [showModal, lastOrderId, grandTotal, vatTotal]);
+
+  if (!user?.tenant_id) {
+    return (
+      <div className="p-8 text-center font-bold text-content-3" dir="rtl">
+        جاري تحميل بيانات المستأجر...
+      </div>
+    );
+  }
+
+  if (!cashierUnlocked) {
+    return (
+      <EmployeePinPad
+        tenantId={user.tenant_id}
+        onUnlocked={() => setCashierUnlocked(true)}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-var(--topbar-h))] -m-6 w-[calc(100%+3rem)] bg-surface-bg-2 overflow-hidden animate-fade-in relative z-0">
