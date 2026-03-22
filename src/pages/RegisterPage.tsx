@@ -192,69 +192,83 @@ export default function RegisterPage() {
 
   const handleStep3 = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
 
     if (vatStatus === 'yes') {
-      const err = validateVatNumber(country, vatNumber);
-      if (err) {
-        setError(err);
+      const validationErr = validateVatNumber(country, vatNumber);
+      if (validationErr) {
+        setError(validationErr);
         return;
       }
     }
 
     setLoading(true);
-    try {
-      const numBranch = Number(branchCount);
-      const p_branch_count = Number.isFinite(numBranch) && numBranch > 0 ? numBranch : branchCount || '1';
+    setError('');
 
-      const { data: result, error: rpcError } = await supabase.rpc('create_nawwat_tenant', {
-        p_display_name: companyName.trim(),
+    try {
+      console.log('Step 3 started');
+      console.log('State:', {
+        companyName,
+        country,
+        industry,
+        vatStatus,
+        vatNumber,
+        employeeCount,
+        branchCount,
+      });
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      console.log('Session:', session?.user?.id);
+
+      if (!session) {
+        setError('انتهت الجلسة — يرجى تسجيل الدخول مرة أخرى');
+        return;
+      }
+
+      const params = {
+        p_display_name: companyName.trim() || 'My Company',
         p_country_code: country || 'UAE',
         p_industry: industry || 'retail',
-        // الـ RPC يتوقع نصاً يُقارَن بـ 'yes' في SQL
         p_vat_registered: vatStatus === 'yes' ? 'yes' : 'no',
         p_vat_number: vatStatus === 'yes' ? vatNumber.trim() || null : null,
         p_employee_count: employeeCount || '1-5',
-        p_branch_count: p_branch_count,
-      });
+        p_branch_count: String(branchCount || '1'),
+      };
+      console.log('RPC params:', params);
+
+      const { data: result, error: rpcError } = await supabase.rpc('create_nawwat_tenant', params);
+
+      console.log('RPC result:', result);
+      console.log('RPC error:', rpcError);
 
       if (rpcError) {
-        console.error('RPC Error:', rpcError);
         setError('حدث خطأ: ' + translateRpcError(rpcError.message));
-        setLoading(false);
         return;
       }
 
       if (result == null) {
-        setError('لم يتم إنشاء مساحة العمل — حاول مرة أخرى');
-        setLoading(false);
+        setError('لم يتم إنشاء مساحة العمل');
         return;
       }
 
-      const r = result as { tenant_id?: string } | string;
-      const tenantId =
-        typeof r === 'object' && r !== null && 'tenant_id' in r && r.tenant_id
-          ? String(r.tenant_id)
-          : typeof r === 'string'
-            ? r
-            : null;
+      const r = result as { tenant_id?: string };
+      const tenantId = r?.tenant_id != null ? String(r.tenant_id) : null;
+      console.log('Tenant ID:', tenantId);
 
       if (!tenantId) {
-        setError('لم يتم إنشاء مساحة العمل — حاول مرة أخرى');
-        setLoading(false);
+        setError('لم يتم إنشاء مساحة العمل');
         return;
       }
 
       localStorage.setItem('nawwat_tenant_id', tenantId);
-
       await refreshUserSession();
-
       setStep(4);
-      setLoading(false);
-    } catch (unknownErr: unknown) {
-      console.error('handleStep3:', unknownErr);
-      const msg = unknownErr instanceof Error ? unknownErr.message : String(unknownErr);
-      setError('حدث خطأ: ' + msg);
+    } catch (err: unknown) {
+      console.error('Caught error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setError('خطأ غير متوقع: ' + msg);
+    } finally {
       setLoading(false);
     }
   };
