@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import SplashScreen from './pages/SplashScreen';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
-const RegisterIndex = React.lazy(() => import('./pages/register/index'));
+const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
 const RegisterSuccess = React.lazy(() => import('./pages/register/success'));
 import SuspendedScreen from './pages/SuspendedScreen';
 import { MainLayout } from './components/layout/MainLayout';
@@ -96,7 +96,14 @@ export default function App() {
           <Route path="/splash" element={<SplashScreen onComplete={() => { }} />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
-          <Route path="/register" element={<Suspense fallback={<GlobalLoadingSpinner />}><RegisterIndex /></Suspense>} />
+          <Route
+            path="/register"
+            element={
+              <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#071C3B] text-white font-arabic">جاري التحميل...</div>}>
+                <RegisterPage />
+              </Suspense>
+            }
+          />
           <Route path="/register/success" element={<Suspense fallback={<GlobalLoadingSpinner />}><RegisterSuccess /></Suspense>} />
           <Route path="/suspended" element={<SuspendedScreen />} />
           <Route path="/portal" element={<Suspense fallback={<GlobalLoadingSpinner />}><CustomerPortalPage /></Suspense>} />

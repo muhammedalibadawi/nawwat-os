@@ -127,6 +127,18 @@ export const Sidebar: React.FC = () => {
                     </span>
                 </a>
                 <a
+                    href="/register"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${navItemClass(false)} no-underline`}
+                    title="التسجيل"
+                >
+                    <ExternalLink size={18} className="shrink-0 opacity-55" />
+                    <span className={`flex-1 overflow-hidden transition-all duration-400 ${sidebarMini ? 'opacity-0 max-w-0' : 'max-w-[160px]'}`}>
+                        التسجيل ↗
+                    </span>
+                </a>
+                <a
                     href="/supplier-portal"
                     target="_blank"
                     rel="noopener noreferrer"

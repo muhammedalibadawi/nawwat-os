@@ -1,14 +1,8 @@
 /**
  * AuthContext.tsx — NawwatOS · Supabase - Only Auth(v3 — Bulletproof Loading)
-  *
- * Critical Fix(v3): buildAppUser previously threw when the `profiles` table
-  * didn't exist, causing hydrateUser() to reject silently and leaving
-    * setLoading(false) unreachable → infinite spinner.
  *
- * Fix: buildAppUser is now fully try/catch wrapped and ALWAYS returns a valid
-  * AppUser object(falling back to email / defaults).hydrateUser() is wrapped in
- * try/catch, and the useEffect wraps both getSession() and onAuthStateChange()
-  * in try/catch/finally so setLoading(false) is GUARANTEED to run.
+ * Users may authenticate before a tenant exists (registration wizard).
+ * buildAppUser never returns null — missing tenant_id yields empty strings + role 'owner'.
  */
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
@@ -52,30 +46,23 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signInWithOtp: (email: string, redirectPath?: string) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshUserSession: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
-// buildAppUser — reads app_metadata only (no user_metadata fallbacks).
-// Returns null if tenant_id is missing (invalid JWT for app access).
+// buildAppUser — reads app_metadata; allows empty tenant (onboarding).
 // ---------------------------------------------------------------------------
 
-const buildAppUser = async (supabaseUser: User): Promise<AppUser | null> => {
+const buildAppUser = async (supabaseUser: User): Promise<AppUser> => {
   const appMeta = supabaseUser.app_metadata ?? {};
 
-  // اقرأ من app_metadata فقط — لا fallback لـ user_metadata
-  const role = (appMeta.user_role as AppRole) || '';
+  const role = ((appMeta.user_role as AppRole) || 'owner') as AppRole;
   const tenant_id = (appMeta.tenant_id as string) || '';
   const branch_id = (appMeta.default_branch_id as string) || '';
 
-  // لو app_metadata فارغة — امنع الدخول
-  if (!tenant_id) {
-    console.error('JWT missing tenant_id in app_metadata');
-    return null;
-  }
+  let full_name: string =
+    (supabaseUser.user_metadata?.full_name as string | undefined) || supabaseUser.email || 'User';
 
-  // Attempt to fetch display name — this is OPTIONAL and non-critical.
-  // If the `profiles` table doesn't exist yet, we fall back to email.
-  let full_name = supabaseUser.email ?? 'User';
   try {
     const { data: profile, error } = await supabase
       .from('profiles')
@@ -86,23 +73,23 @@ const buildAppUser = async (supabaseUser: User): Promise<AppUser | null> => {
     if (!error && profile?.full_name) {
       full_name = profile.full_name;
     }
-    // If error (table missing, no row, etc.) — silently fall back. No throw.
     if (error) {
       console.warn('[AuthContext] profiles fetch skipped (table may not exist):', error.message);
     }
-  } catch (profileErr: any) {
-    console.warn('[AuthContext] profiles fetch caught unexpected error:', profileErr?.message);
+  } catch (profileErr: unknown) {
+    const msg = profileErr instanceof Error ? profileErr.message : String(profileErr);
+    console.warn('[AuthContext] profiles fetch caught unexpected error:', msg);
   }
 
   return {
     id: supabaseUser.id,
     email: supabaseUser.email ?? '',
     full_name,
-    role: role as AppRole,
+    role,
     tenant_id,
     branch_id,
   };
-}
+};
 
 // ---------------------------------------------------------------------------
 // Context
@@ -112,9 +99,10 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
   loading: true,
-  signIn: async () => { },
-  signInWithOtp: async () => { },
-  signOut: async () => { },
+  signIn: async () => {},
+  signInWithOtp: async () => {},
+  signOut: async () => {},
+  refreshUserSession: async () => {},
 });
 
 // ---------------------------------------------------------------------------
@@ -129,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /**
    * hydrateUser — builds the AppUser and updates state.
    * NEVER throws — all errors are caught internally.
+   * No signOut when tenant_id is missing (RegisterPage handles onboarding).
    */
   const hydrateUser = useCallback(async (activeSession: Session | null) => {
     if (!activeSession?.user) {
@@ -137,36 +126,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       const appUser = await buildAppUser(activeSession.user);
-      if (appUser === null) {
-        setUser(null);
-        await supabase.auth.signOut();
-        setSession(null);
-        return;
-      }
       setUser(appUser);
-    } catch (err: any) {
-      console.error('[AuthContext] hydrateUser unexpected error:', err?.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[AuthContext] hydrateUser unexpected error:', msg);
       setUser(null);
     }
   }, []);
 
+  const refreshUserSession = useCallback(async () => {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) {
+      console.warn('[AuthContext] refreshSession:', error.message);
+      return;
+    }
+    if (data.session) {
+      setSession(data.session);
+      await hydrateUser(data.session);
+    }
+  }, [hydrateUser]);
+
   useEffect(() => {
     let mounted = true;
 
-    // ── Initial session check ──────────────────────────────────────────────
-    // StrictMode workaround: without getSession(), the `INITIAL_SESSION` event 
-    // from onAuthStateChange is often swallowed by the first unmount.
     const bootstrap = async () => {
       try {
-        const { data: { session: activeSession }, error } = await supabase.auth.getSession();
+        const {
+          data: { session: activeSession },
+          error,
+        } = await supabase.auth.getSession();
         if (error) console.warn('[AuthContext] getSession warning:', error.message);
         if (!mounted) return;
         setSession(activeSession);
         await hydrateUser(activeSession);
-      } catch (err: any) {
-        // Lock stealing under StrictMode triggers here. It is safe to ignore 
-        // because onAuthStateChange will eventually resolve the state.
-        console.warn('[AuthContext] getSession lock collision ignored:', err?.message);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('[AuthContext] getSession lock collision ignored:', msg);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -174,20 +169,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     bootstrap();
 
-    // ── Auth state changes (login, logout, token refresh) ──────────────────
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, nextSession) => {
-        if (!mounted) return;
-        setSession(nextSession);
-        try {
-          await hydrateUser(nextSession);
-        } catch (err: any) {
-          console.error('[AuthContext] onAuthStateChange error:', err?.message);
-        } finally {
-          if (mounted) setLoading(false);
-        }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+      if (!mounted) return;
+      setSession(nextSession);
+      try {
+        await hydrateUser(nextSession);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('[AuthContext] onAuthStateChange error:', msg);
+      } finally {
+        if (mounted) setLoading(false);
       }
-    );
+    });
 
     return () => {
       mounted = false;
@@ -195,14 +190,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [hydrateUser]);
 
-  /**
-   * signIn — throws AuthError to the caller (LoginPage) on failure.
-   * NO mock sessions. NO fallback. Failure is always visible.
-   */
   const signIn = async (email: string, password: string): Promise<void> => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error as AuthError;
-    // onAuthStateChange listener handles setUser/setSession automatically
   };
 
   const signInWithOtp = async (email: string, redirectPath = '/portal'): Promise<void> => {
@@ -221,7 +211,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, signIn, signInWithOtp, signOut }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        user,
+        loading,
+        signIn,
+        signInWithOtp,
+        signOut,
+        refreshUserSession,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
