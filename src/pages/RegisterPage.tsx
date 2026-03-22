@@ -123,8 +123,9 @@ export default function RegisterPage() {
   const [vatStatus, setVatStatus] = useState<VatStatus>('no');
   const [vatNumber, setVatNumber] = useState('');
 
-  const [step3Loading, setStep3Loading] = useState(false);
-  const [step3Error, setStep3Error] = useState<string | null>(null);
+  /** خطوة 3 — إنشاء المستأجر */
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [step2Checked, setStep2Checked] = useState(false);
 
@@ -189,53 +190,72 @@ export default function RegisterPage() {
     setStep(3);
   };
 
-  const onStep3Submit = async (e: React.FormEvent) => {
+  const handleStep3 = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStep3Error(null);
+    setError(null);
 
     if (vatStatus === 'yes') {
       const err = validateVatNumber(country, vatNumber);
       if (err) {
-        setStep3Error(err);
+        setError(err);
         return;
       }
     }
 
-    const p_vat_registered = vatStatus === 'yes' ? 'yes' : 'no';
-    const p_vat_number =
-      vatStatus === 'yes' ? vatNumber.trim() : null;
-
-    setStep3Loading(true);
+    setLoading(true);
     try {
-      const { data, error } = await supabase.rpc('create_nawwat_tenant', {
+      const numBranch = Number(branchCount);
+      const p_branch_count = Number.isFinite(numBranch) && numBranch > 0 ? numBranch : branchCount || '1';
+
+      const { data: result, error: rpcError } = await supabase.rpc('create_nawwat_tenant', {
         p_display_name: companyName.trim(),
-        p_country_code: country,
-        p_industry: industry,
-        p_vat_registered,
-        p_vat_number,
-        p_employee_count: employeeCount,
-        p_branch_count: branchCount,
+        p_country_code: country || 'UAE',
+        p_industry: industry || 'retail',
+        // الـ RPC يتوقع نصاً يُقارَن بـ 'yes' في SQL
+        p_vat_registered: vatStatus === 'yes' ? 'yes' : 'no',
+        p_vat_number: vatStatus === 'yes' ? vatNumber.trim() || null : null,
+        p_employee_count: employeeCount || '1-5',
+        p_branch_count: p_branch_count,
       });
 
-      if (error) {
-        setStep3Error(translateRpcError(error.message));
+      if (rpcError) {
+        console.error('RPC Error:', rpcError);
+        setError('حدث خطأ: ' + translateRpcError(rpcError.message));
+        setLoading(false);
         return;
       }
 
-      const payload = data as { tenant_id?: string } | null;
-      const tenantId =
-        payload && typeof payload === 'object' && payload.tenant_id
-          ? String(payload.tenant_id)
-          : null;
-
-      if (tenantId) {
-        localStorage.setItem('nawwat_tenant_id', tenantId);
+      if (result == null) {
+        setError('لم يتم إنشاء مساحة العمل — حاول مرة أخرى');
+        setLoading(false);
+        return;
       }
 
+      const r = result as { tenant_id?: string } | string;
+      const tenantId =
+        typeof r === 'object' && r !== null && 'tenant_id' in r && r.tenant_id
+          ? String(r.tenant_id)
+          : typeof r === 'string'
+            ? r
+            : null;
+
+      if (!tenantId) {
+        setError('لم يتم إنشاء مساحة العمل — حاول مرة أخرى');
+        setLoading(false);
+        return;
+      }
+
+      localStorage.setItem('nawwat_tenant_id', tenantId);
+
       await refreshUserSession();
+
       setStep(4);
-    } finally {
-      setStep3Loading(false);
+      setLoading(false);
+    } catch (unknownErr: unknown) {
+      console.error('handleStep3:', unknownErr);
+      const msg = unknownErr instanceof Error ? unknownErr.message : String(unknownErr);
+      setError('حدث خطأ: ' + msg);
+      setLoading(false);
     }
   };
 
@@ -428,7 +448,7 @@ export default function RegisterPage() {
           )}
 
           {step === 3 && (
-            <form onSubmit={onStep3Submit} className="flex flex-col gap-4">
+            <form onSubmit={handleStep3} className="flex flex-col gap-4">
               <h1 className="text-xl font-extrabold">إعداد {companyName || 'شركتك'}</h1>
 
               <div className="rounded-xl bg-[#00CFFF]/12 border border-[#00CFFF]/35 p-4 text-sm space-y-2 text-white/95">
@@ -500,18 +520,23 @@ export default function RegisterPage() {
                 </label>
               )}
 
-              {step3Error && (
-                <p className="text-sm text-red-300 bg-red-500/10 border border-red-400/30 rounded-lg px-3 py-2">{step3Error}</p>
-              )}
-
               <button
                 type="submit"
-                disabled={step3Loading}
+                disabled={loading}
                 className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#00CFFF] text-[#071C3B] font-extrabold py-3 text-sm hover:brightness-110 disabled:opacity-60"
               >
-                {step3Loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 إنشاء مساحة العمل →
               </button>
+
+              {error && (
+                <p
+                  role="alert"
+                  className="text-sm text-red-400 bg-red-950/50 border border-red-500/50 rounded-lg px-3 py-2 mt-1"
+                >
+                  {error}
+                </p>
+              )}
             </form>
           )}
 
