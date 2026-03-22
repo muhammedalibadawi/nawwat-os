@@ -60,22 +60,22 @@ const buildAppUser = async (supabaseUser: User): Promise<AppUser> => {
   const tenant_id = (appMeta.tenant_id as string) || '';
   const branch_id = (appMeta.default_branch_id as string) || '';
 
-  let full_name: string =
-    (supabaseUser.user_metadata?.full_name as string | undefined) || supabaseUser.email || 'User';
+  const metaName = (supabaseUser.user_metadata?.full_name as string | undefined)?.trim();
+  let full_name: string = metaName || supabaseUser.email || 'User';
 
   try {
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('full_name')
+      .select('*')
       .eq('id', supabaseUser.id)
-      .single();
+      .maybeSingle();
 
-    if (!error && profile?.full_name) {
-      full_name = profile.full_name;
-    }
     if (error) {
-      console.warn('[AuthContext] profiles fetch skipped (table may not exist):', error.message);
+      console.warn('[AuthContext] profiles fetch:', error.message);
+    } else if (profile && typeof profile === 'object' && 'full_name' in profile && profile.full_name) {
+      full_name = String(profile.full_name).trim() || full_name;
     }
+    // لو profile فارغ أو بدون full_name: نبقى على user_metadata (metaName / email) أعلاه
   } catch (profileErr: unknown) {
     const msg = profileErr instanceof Error ? profileErr.message : String(profileErr);
     console.warn('[AuthContext] profiles fetch caught unexpected error:', msg);
