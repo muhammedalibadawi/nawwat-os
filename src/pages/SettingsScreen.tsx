@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { Settings, Save, Loader2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { COUNTRY_PRESETS, getCountryPreset, wpsBadgeText, zatcaBadgeText } from '@/services/countryConfig';
 
 export default function SettingsScreen() {
     const { user } = useAuth();
     const [isSaving, setIsSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<'company' | 'users' | 'pos' | 'branches'>('company');
+    const [activeTab, setActiveTab] = useState<'company' | 'users' | 'pos' | 'branches' | 'fx' | 'comms'>('company');
     const [tenant, setTenant] = useState<any>(null);
     const [users, setUsers] = useState<any[]>([]);
     const [roles, setRoles] = useState<any[]>([]);
@@ -17,6 +18,11 @@ export default function SettingsScreen() {
     const [posSound, setPosSound] = useState(localStorage.getItem('pos_sound') !== 'off');
     const [posAutoPrint, setPosAutoPrint] = useState(localStorage.getItem('pos_auto_print') === 'on');
     const [posShowCurrency, setPosShowCurrency] = useState(localStorage.getItem('pos_show_currency') !== 'off');
+    const [fxRows, setFxRows] = useState<any[]>([]);
+    const [fxLoading, setFxLoading] = useState(false);
+    const [fxError, setFxError] = useState('');
+    const [fxModal, setFxModal] = useState(false);
+    const [fxForm, setFxForm] = useState({ from_currency: 'USD', to_currency: 'AED', rate: '3.6725' });
 
     useEffect(() => {
         let cancelled = false;
@@ -48,18 +54,114 @@ export default function SettingsScreen() {
         };
     }, [user?.tenant_id]);
 
+    useEffect(() => {
+        let c = false;
+        async function loadFx() {
+            if (!user?.tenant_id || activeTab !== 'fx') return;
+            setFxLoading(true);
+            setFxError('');
+            try {
+                const { data, error } = await supabase
+                    .from('fx_rates')
+                    .select('*')
+                    .eq('tenant_id', user.tenant_id)
+                    .order('rate_date', { ascending: false })
+                    .limit(100);
+                if (error) throw error;
+                if (!c) setFxRows(data ?? []);
+            } catch (e: any) {
+                if (!c) setFxError(e?.message ?? 'فشل تحميل أسعار الصرف');
+            } finally {
+                if (!c) setFxLoading(false);
+            }
+        }
+        loadFx();
+        return () => {
+            c = true;
+        };
+    }, [user?.tenant_id, activeTab]);
+
+    const applyCountrySelection = (code: string) => {
+        const p = getCountryPreset(code);
+        if (!p || !tenant) return;
+        setTenant({
+            ...tenant,
+            country_code: p.code,
+            country: p.code,
+            default_currency: p.currency,
+            currency: p.currency,
+            default_tax_rate: p.vatRate,
+            vat_rate: p.vatRate,
+        });
+    };
+
     const handleSaveCompany = async () => {
         if (!user?.tenant_id || !tenant) return;
         setIsSaving(true);
-        await supabase.from('tenants').update({
-            name: tenant.name,
-            vat_no: tenant.vat_no,
-            country: tenant.country,
-            currency: tenant.currency,
-            vat_rate: tenant.vat_rate,
-            address: tenant.address,
-        }).eq('id', user.tenant_id);
-        setIsSaving(false);
+        try {
+            await supabase
+                .from('tenants')
+                .update({
+                    name: tenant.name,
+                    vat_no: tenant.vat_no,
+                    country: tenant.country_code || tenant.country,
+                    currency: tenant.default_currency || tenant.currency,
+                    country_code: tenant.country_code || tenant.country,
+                    default_currency: tenant.default_currency || tenant.currency,
+                    default_tax_rate: Number(tenant.default_tax_rate ?? tenant.vat_rate ?? 5),
+                    vat_rate: Number(tenant.vat_rate ?? tenant.default_tax_rate ?? 5),
+                    address: tenant.address,
+                })
+                .eq('id', user.tenant_id);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const saveComms = async () => {
+        if (!user?.tenant_id || !tenant) return;
+        setIsSaving(true);
+        try {
+            await supabase
+                .from('tenants')
+                .update({
+                    whatsapp_number: tenant.whatsapp_number || null,
+                    whatsapp_api_key: tenant.whatsapp_api_key || null,
+                })
+                .eq('id', user.tenant_id);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const saveFxRate = async () => {
+        if (!user?.tenant_id) return;
+        setIsSaving(true);
+        setFxError('');
+        try {
+            const row = {
+                tenant_id: user.tenant_id,
+                from_currency: fxForm.from_currency.trim().toUpperCase(),
+                to_currency: fxForm.to_currency.trim().toUpperCase(),
+                rate: Number(fxForm.rate),
+                rate_date: new Date().toISOString().slice(0, 10),
+                source: 'manual',
+            };
+            const { error } = await supabase.from('fx_rates').insert(row);
+            if (error) throw error;
+            setFxModal(false);
+            const { data } = await supabase
+                .from('fx_rates')
+                .select('*')
+                .eq('tenant_id', user.tenant_id)
+                .order('rate_date', { ascending: false })
+                .limit(100);
+            setFxRows(data ?? []);
+        } catch (e: any) {
+            setFxError(e?.message ?? 'فشل الحفظ');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const inviteUser = async () => {
@@ -127,11 +229,19 @@ export default function SettingsScreen() {
                 </div>
                 <button
                     disabled={isSaving}
-                    onClick={activeTab === 'company' ? handleSaveCompany : activeTab === 'pos' ? savePosSettings : undefined}
+                    onClick={
+                        activeTab === 'company'
+                            ? handleSaveCompany
+                            : activeTab === 'pos'
+                              ? savePosSettings
+                              : activeTab === 'comms'
+                                ? saveComms
+                                : undefined
+                    }
                     className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 active:scale-95 transition-all shadow-sm shadow-indigo-200"
                 >
                     {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                    {isSaving ? 'Saving...' : 'Save Changes'}
+                    {isSaving ? 'جاري الحفظ...' : 'حفظ التغييرات'}
                 </button>
             </div>
 
@@ -168,17 +278,181 @@ export default function SettingsScreen() {
                 >
                     الفروع
                 </button>
+                <button
+                    onClick={() => setActiveTab('fx')}
+                    className={`px-5 py-2.5 text-sm font-bold border-b-2 transition-colors ${
+                        activeTab === 'fx' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-200'
+                    }`}
+                >
+                    العملات وأسعار الصرف
+                </button>
+                <button
+                    onClick={() => setActiveTab('comms')}
+                    className={`px-5 py-2.5 text-sm font-bold border-b-2 transition-colors ${
+                        activeTab === 'comms' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-200'
+                    }`}
+                >
+                    التواصل
+                </button>
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
                 {activeTab === 'company' && tenant && (
-                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <input className="border rounded-xl px-3 py-2" placeholder="اسم الشركة" value={tenant.name || ''} onChange={(e) => setTenant({ ...tenant, name: e.target.value })} />
-                        <input className="border rounded-xl px-3 py-2" placeholder="TRN/VAT" value={tenant.vat_no || ''} onChange={(e) => setTenant({ ...tenant, vat_no: e.target.value })} />
-                        <input className="border rounded-xl px-3 py-2" placeholder="البلد" value={tenant.country || ''} onChange={(e) => setTenant({ ...tenant, country: e.target.value })} />
-                        <input className="border rounded-xl px-3 py-2" placeholder="العملة" value={tenant.currency || ''} onChange={(e) => setTenant({ ...tenant, currency: e.target.value })} />
-                        <input className="border rounded-xl px-3 py-2" placeholder="نسبة الضريبة" value={tenant.vat_rate || ''} onChange={(e) => setTenant({ ...tenant, vat_rate: e.target.value })} />
-                        <input className="border rounded-xl px-3 py-2 md:col-span-2" placeholder="العنوان" value={tenant.address || ''} onChange={(e) => setTenant({ ...tenant, address: e.target.value })} />
+                    <div className="p-6 space-y-4" dir="rtl">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <input
+                                className="border rounded-xl px-3 py-2"
+                                placeholder="اسم الشركة"
+                                value={tenant.name || ''}
+                                onChange={(e) => setTenant({ ...tenant, name: e.target.value })}
+                            />
+                            <input
+                                className="border rounded-xl px-3 py-2"
+                                placeholder="TRN / الرقم الضريبي"
+                                value={tenant.vat_no || ''}
+                                onChange={(e) => setTenant({ ...tenant, vat_no: e.target.value })}
+                            />
+                            <div className="md:col-span-2">
+                                <label className="text-xs font-bold text-gray-500 block mb-1">الدولة</label>
+                                <select
+                                    className="w-full border rounded-xl px-3 py-2 font-bold"
+                                    value={tenant.country_code || tenant.country || 'UAE'}
+                                    onChange={(e) => applyCountrySelection(e.target.value)}
+                                >
+                                    {COUNTRY_PRESETS.map((c) => (
+                                        <option key={c.code} value={c.code}>
+                                            {c.flag} {c.code} | {c.labelAr} — ضريبة {c.vatRate}% — {c.currency}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="md:col-span-2 flex flex-wrap gap-2">
+                                <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-800">
+                                    {zatcaBadgeText(getCountryPreset(tenant.country_code || tenant.country))}
+                                </span>
+                                <span className="px-3 py-1 rounded-full text-xs font-bold bg-cyan-50 text-cyan-900">
+                                    {wpsBadgeText(getCountryPreset(tenant.country_code || tenant.country))}
+                                </span>
+                                <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-800">
+                                    العملة: {tenant.default_currency || tenant.currency || 'AED'}
+                                </span>
+                                <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-900">
+                                    ضريبة افتراضية: {tenant.default_tax_rate ?? tenant.vat_rate ?? 5}%
+                                </span>
+                            </div>
+                            <input className="border rounded-xl px-3 py-2 md:col-span-2" placeholder="العنوان" value={tenant.address || ''} onChange={(e) => setTenant({ ...tenant, address: e.target.value })} />
+                        </div>
+                    </div>
+                )}
+                {activeTab === 'fx' && (
+                    <div className="p-6 space-y-4" dir="rtl">
+                        <div className="flex justify-between items-center flex-wrap gap-2">
+                            <h3 className="font-black text-lg">أسعار الصرف</h3>
+                            <button
+                                type="button"
+                                onClick={() => setFxModal(true)}
+                                className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm"
+                            >
+                                تحديث سعر
+                            </button>
+                        </div>
+                        {fxLoading && <p className="text-gray-500">جاري التحميل...</p>}
+                        {fxError && <p className="text-red-600 font-bold">{fxError}</p>}
+                        <div className="border rounded-xl overflow-x-auto">
+                            <table className="w-full text-sm min-w-[520px]">
+                                <thead className="bg-gray-50">
+                                    <tr>
+                                        <th className="p-2 text-start">من</th>
+                                        <th className="p-2 text-start">إلى</th>
+                                        <th className="p-2 text-start">السعر</th>
+                                        <th className="p-2 text-start">التاريخ</th>
+                                        <th className="p-2 text-start">المصدر</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[
+                                        { from: 'USD', to: 'AED', rate: 3.6725, src: 'ثابت' },
+                                        { from: 'USD', to: 'SAR', rate: 3.75, src: 'ثابت' },
+                                        { from: 'EUR', to: 'AED', rate: 4.02, src: 'تقديري' },
+                                        { from: 'GBP', to: 'AED', rate: 4.65, src: 'تقديري' },
+                                    ].map((r, i) => (
+                                        <tr key={`def-${i}`} className="border-t bg-gray-50/80">
+                                            <td className="p-2 font-mono">{r.from}</td>
+                                            <td className="p-2 font-mono">{r.to}</td>
+                                            <td className="p-2 font-bold">{r.rate}</td>
+                                            <td className="p-2">—</td>
+                                            <td className="p-2">{r.src}</td>
+                                        </tr>
+                                    ))}
+                                    {fxRows.map((r: any) => (
+                                        <tr key={r.id} className="border-t">
+                                            <td className="p-2 font-mono">{r.from_currency}</td>
+                                            <td className="p-2 font-mono">{r.to_currency}</td>
+                                            <td className="p-2 font-bold">{Number(r.rate).toFixed(6)}</td>
+                                            <td className="p-2">{r.rate_date}</td>
+                                            <td className="p-2">{r.source || '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <p className="text-xs text-gray-500">أسعار USD/AED و USD/SAR ثابتة رسمياً (عرض مرجعي).</p>
+                        {fxModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                                <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-xl">
+                                    <h4 className="font-black">إضافة / تحديث سعر</h4>
+                                    <input
+                                        className="w-full border rounded-lg px-3 py-2"
+                                        placeholder="من (مثال USD)"
+                                        value={fxForm.from_currency}
+                                        onChange={(e) => setFxForm({ ...fxForm, from_currency: e.target.value })}
+                                    />
+                                    <input
+                                        className="w-full border rounded-lg px-3 py-2"
+                                        placeholder="إلى (مثال AED)"
+                                        value={fxForm.to_currency}
+                                        onChange={(e) => setFxForm({ ...fxForm, to_currency: e.target.value })}
+                                    />
+                                    <input
+                                        className="w-full border rounded-lg px-3 py-2"
+                                        placeholder="السعر"
+                                        value={fxForm.rate}
+                                        onChange={(e) => setFxForm({ ...fxForm, rate: e.target.value })}
+                                    />
+                                    <div className="flex justify-end gap-2">
+                                        <button type="button" className="px-4 py-2 border rounded-lg font-bold" onClick={() => setFxModal(false)}>
+                                            إلغاء
+                                        </button>
+                                        <button type="button" disabled={isSaving} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold" onClick={saveFxRate}>
+                                            حفظ
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {activeTab === 'comms' && tenant && (
+                    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-3" dir="rtl">
+                        <div className="md:col-span-2">
+                            <label className="text-xs font-bold text-gray-500">رقم WhatsApp للأعمال (مع رمز الدولة)</label>
+                            <input
+                                className="w-full border rounded-xl px-3 py-2 mt-1"
+                                placeholder="مثال: 971501234567"
+                                value={tenant.whatsapp_number || ''}
+                                onChange={(e) => setTenant({ ...tenant, whatsapp_number: e.target.value })}
+                            />
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="text-xs font-bold text-gray-500">Meta API Key (للمستقبل)</label>
+                            <input
+                                type="password"
+                                className="w-full border rounded-xl px-3 py-2 mt-1"
+                                placeholder="اختياري"
+                                value={tenant.whatsapp_api_key || ''}
+                                onChange={(e) => setTenant({ ...tenant, whatsapp_api_key: e.target.value })}
+                            />
+                        </div>
                     </div>
                 )}
                 {activeTab === 'users' && (

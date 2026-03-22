@@ -11,7 +11,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
   ],
   cashier: ['/dashboard', '/pos'],
   kitchen: ['/dashboard'],
-  accountant: ['/dashboard', '/accounting', '/reports', '/analytics', '/invoices', '/collection', '/procurement', '/payroll'],
+  accountant: ['/dashboard', '/accounting', '/reports', '/analytics', '/invoices', '/collection', '/procurement', '/payroll', '/cheques'],
   hr: ['/dashboard', '/hr', '/payroll'],
   warehouse: ['/dashboard', '/inventory', '/logistics'],
   procurement: ['/dashboard', '/inventory', '/logistics', '/procurement'],

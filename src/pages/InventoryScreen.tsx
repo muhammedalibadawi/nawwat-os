@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { Package, AlertCircle, PlusCircle, Pencil, Trash2, Building2, ArrowRightLeft, BarChart3, BellRing, Warehouse, ImageIcon, Eye } from 'lucide-react';
 
-type TabKey = 'products' | 'movements' | 'reports' | 'warehouses' | 'alerts' | 'transfers';
+type TabKey = 'products' | 'movements' | 'reports' | 'warehouses' | 'alerts' | 'transfers' | 'writeoffs';
 type StockFilter = 'all' | 'available' | 'low' | 'out';
 type MovementType = 'receipt' | 'issue' | 'transfer' | 'adjustment' | 'waste';
 
@@ -64,6 +64,18 @@ const tabs: { key: TabKey; label: string }[] = [
     { key: 'warehouses', label: '🏭 المستودعات' },
     { key: 'alerts', label: '⚠️ التنبيهات' },
     { key: 'transfers', label: '🔀 التحويلات' },
+    { key: 'writeoffs', label: '🗑️ الإتلاف والتسوية' },
+];
+
+const WASTE_REASONS: { id: string; label: string }[] = [
+    { id: 'damage', label: 'تلف' },
+    { id: 'expiry', label: 'انتهاء صلاحية' },
+    { id: 'theft', label: 'سرقة' },
+    { id: 'sample', label: 'عينة' },
+    { id: 'internal', label: 'استخدام داخلي' },
+    { id: 'donation', label: 'تبرع' },
+    { id: 'inventory_diff', label: 'فروق جرد' },
+    { id: 'other', label: 'أخرى' },
 ];
 
 const movementTypeLabel: Record<MovementType, string> = {
@@ -149,6 +161,50 @@ export default function InventoryScreen() {
         name_ar: '',
         type: 'branch',
     });
+
+    const [writeoffs, setWriteoffs] = useState<any[]>([]);
+    const [writeoffsLoading, setWriteoffsLoading] = useState(false);
+    const [showWriteoffModal, setShowWriteoffModal] = useState(false);
+    const [savingWriteoff, setSavingWriteoff] = useState(false);
+    const [writeoffError, setWriteoffError] = useState('');
+    const [writeoffForm, setWriteoffForm] = useState({
+        item_id: '',
+        warehouse_id: '',
+        quantity: '',
+        unit_cost: '',
+        reason: 'damage',
+        notes: '',
+        receipt_url: '',
+    });
+
+    const loadWriteoffs = async () => {
+        if (!user?.tenant_id) {
+            setWriteoffs([]);
+            return;
+        }
+        setWriteoffsLoading(true);
+        setWriteoffError('');
+        try {
+            const { data, error: wErr } = await supabase
+                .from('inventory_writeoffs')
+                .select('*')
+                .eq('tenant_id', user.tenant_id)
+                .order('created_at', { ascending: false });
+            if (wErr) throw wErr;
+            setWriteoffs(data ?? []);
+        } catch (err: any) {
+            setWriteoffs([]);
+            setWriteoffError(err?.message ?? 'فشل تحميل الإتلافات');
+        } finally {
+            setWriteoffsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (activeTab === 'writeoffs' && user?.tenant_id) {
+            void loadWriteoffs();
+        }
+    }, [activeTab, user?.tenant_id]);
 
     const loadAll = async () => {
         if (!user?.tenant_id) {
@@ -679,6 +735,91 @@ export default function InventoryScreen() {
         }
     };
 
+    const canApproveWriteoff = user?.role === 'owner' || user?.role === 'master_admin';
+
+    const saveWriteoff = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user?.tenant_id || !user?.id) return;
+        const qty = Number(writeoffForm.quantity);
+        const uc = Number(writeoffForm.unit_cost);
+        if (!writeoffForm.item_id) {
+            setWriteoffError('اختر المنتج');
+            return;
+        }
+        if (Number.isNaN(qty) || qty <= 0) {
+            setWriteoffError('الكمية غير صحيحة');
+            return;
+        }
+        if (Number.isNaN(uc) || uc < 0) {
+            setWriteoffError('تكلفة الوحدة غير صحيحة');
+            return;
+        }
+        const reasonLabel = WASTE_REASONS.find((r) => r.id === writeoffForm.reason)?.label ?? writeoffForm.reason;
+        const autoApprove = canApproveWriteoff;
+        setSavingWriteoff(true);
+        setWriteoffError('');
+        try {
+            const { error: insErr } = await supabase.from('inventory_writeoffs').insert({
+                tenant_id: user.tenant_id,
+                item_id: writeoffForm.item_id,
+                warehouse_id: writeoffForm.warehouse_id || null,
+                quantity: qty,
+                unit_cost: uc,
+                reason: reasonLabel,
+                reason_detail: writeoffForm.reason,
+                notes: writeoffForm.notes || null,
+                receipt_url: writeoffForm.receipt_url || null,
+                status: autoApprove ? 'approved' : 'pending',
+                approved_by: autoApprove ? user.id : null,
+                approved_at: autoApprove ? new Date().toISOString() : null,
+                created_by: user.id,
+            });
+            if (insErr) throw insErr;
+            if (autoApprove) {
+                await upsertStockLevel(writeoffForm.item_id, writeoffForm.warehouse_id || null, -qty);
+            }
+            setShowWriteoffModal(false);
+            setWriteoffForm({
+                item_id: '',
+                warehouse_id: '',
+                quantity: '',
+                unit_cost: '',
+                reason: 'damage',
+                notes: '',
+                receipt_url: '',
+            });
+            await loadWriteoffs();
+            await loadAll();
+        } catch (err: any) {
+            setWriteoffError(err?.message ?? 'فشل التسجيل');
+        } finally {
+            setSavingWriteoff(false);
+        }
+    };
+
+    const approveWriteoff = async (row: any) => {
+        if (!user?.tenant_id || !user?.id || !canApproveWriteoff) return;
+        if (row.status !== 'pending') return;
+        setWriteoffError('');
+        try {
+            const { error: uErr } = await supabase
+                .from('inventory_writeoffs')
+                .update({
+                    status: 'approved',
+                    approved_by: user.id,
+                    approved_at: new Date().toISOString(),
+                })
+                .eq('id', row.id)
+                .eq('tenant_id', user.tenant_id);
+            if (uErr) throw uErr;
+            await upsertStockLevel(row.item_id, row.warehouse_id, -Number(row.quantity));
+            await loadWriteoffs();
+            await loadAll();
+        } catch (err: any) {
+            setWriteoffError(err?.message ?? 'فشلت الموافقة');
+        }
+    };
+
     const tabLoading = loading;
     const tabError = error;
 
@@ -698,7 +839,7 @@ export default function InventoryScreen() {
                 </div>
             </div>
 
-            <div className="mb-5 grid grid-cols-2 md:grid-cols-5 gap-2">
+            <div className="mb-5 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
                 {tabs.map((tab) => (
                     <button
                         key={tab.key}
@@ -1010,6 +1151,184 @@ export default function InventoryScreen() {
                     <p className="text-xs text-[#071C3B]/50">
                         آخر التحويلات تظهر في تبويب «الحركات» بنوع transfer_in / transfer_out.
                     </p>
+                </div>
+            )}
+
+            {!tabLoading && !tabError && activeTab === 'writeoffs' && (
+                <div className="bg-white rounded-2xl p-4 border border-[#071C3B]/10 space-y-4">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                        <h2 className="font-black text-lg">إتلاف وتسوية المخزون</h2>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setWriteoffError('');
+                                setWriteoffForm({
+                                    item_id: items[0]?.id || '',
+                                    warehouse_id: warehouses[0]?.id || '',
+                                    quantity: '',
+                                    unit_cost: '',
+                                    reason: 'damage',
+                                    notes: '',
+                                    receipt_url: '',
+                                });
+                                setShowWriteoffModal(true);
+                            }}
+                            className="px-4 py-2 rounded-lg bg-[#071C3B] text-white font-bold text-sm"
+                        >
+                            تسجيل إتلاف
+                        </button>
+                    </div>
+                    {writeoffError && <p className="text-red-600 font-bold text-sm">{writeoffError}</p>}
+                    {writeoffsLoading ? (
+                        <div className="p-8 text-center font-bold text-[#071C3B]/60">جاري التحميل...</div>
+                    ) : writeoffs.length === 0 ? (
+                        <div className="p-10 flex flex-col items-center gap-2 text-[#071C3B]/50">
+                            <Package className="w-12 h-12 opacity-40" strokeWidth={1.25} />
+                            <span className="font-bold">لا توجد بيانات بعد</span>
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-[#071C3B]/60 text-xs">
+                                        <th className="text-start py-2">المنتج</th>
+                                        <th className="text-start">الكمية</th>
+                                        <th className="text-start">السبب</th>
+                                        <th className="text-start">التكلفة</th>
+                                        <th className="text-start">الحالة</th>
+                                        {canApproveWriteoff ? <th className="text-start">إجراء</th> : null}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {writeoffs.map((w) => {
+                                        const name = items.find((i) => i.id === w.item_id)?.name ?? w.item_id;
+                                        const lineCost = Number(w.quantity ?? 0) * Number(w.unit_cost ?? 0);
+                                        return (
+                                            <tr key={w.id}>
+                                                <td className="py-2 font-bold">{name}</td>
+                                                <td>{num(Number(w.quantity))}</td>
+                                                <td>{w.reason}</td>
+                                                <td>{money(lineCost)}</td>
+                                                <td>
+                                                    <span
+                                                        className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                                            w.status === 'approved'
+                                                                ? 'bg-emerald-100 text-emerald-800'
+                                                                : w.status === 'pending'
+                                                                  ? 'bg-amber-100 text-amber-800'
+                                                                  : 'bg-gray-100'
+                                                        }`}
+                                                    >
+                                                        {w.status === 'approved' ? 'معتمد' : w.status === 'pending' ? 'معلق' : String(w.status)}
+                                                    </span>
+                                                </td>
+                                                {canApproveWriteoff ? (
+                                                    <td>
+                                                        {w.status === 'pending' ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => approveWriteoff(w)}
+                                                                className="px-2 py-1 rounded bg-emerald-600 text-white text-xs font-bold"
+                                                            >
+                                                                موافقة
+                                                            </button>
+                                                        ) : (
+                                                            '—'
+                                                        )}
+                                                    </td>
+                                                ) : null}
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {showWriteoffModal && (
+                <div className="fixed inset-0 bg-[#071C3B]/35 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <form onSubmit={saveWriteoff} className="w-full max-w-lg bg-white rounded-2xl p-6 border border-[#071C3B]/10 max-h-[90vh] overflow-y-auto">
+                        <h3 className="text-lg font-black mb-4">تسجيل إتلاف</h3>
+                        <div className="grid grid-cols-1 gap-3">
+                            <select
+                                value={writeoffForm.item_id}
+                                onChange={(e) => setWriteoffForm({ ...writeoffForm, item_id: e.target.value })}
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                            >
+                                <option value="">اختر المنتج</option>
+                                {items.map((i) => (
+                                    <option key={i.id} value={i.id}>
+                                        {i.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <select
+                                value={writeoffForm.warehouse_id}
+                                onChange={(e) => setWriteoffForm({ ...writeoffForm, warehouse_id: e.target.value })}
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                            >
+                                <option value="">المستودع</option>
+                                {warehouses.map((w) => (
+                                    <option key={w.id} value={w.id}>
+                                        {w.name_ar || w.name}
+                                    </option>
+                                ))}
+                            </select>
+                            <input
+                                type="number"
+                                min={0}
+                                step="0.0001"
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                                placeholder="الكمية"
+                                value={writeoffForm.quantity}
+                                onChange={(e) => setWriteoffForm({ ...writeoffForm, quantity: e.target.value })}
+                            />
+                            <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                                placeholder="تكلفة الوحدة"
+                                value={writeoffForm.unit_cost}
+                                onChange={(e) => setWriteoffForm({ ...writeoffForm, unit_cost: e.target.value })}
+                            />
+                            <select
+                                value={writeoffForm.reason}
+                                onChange={(e) => setWriteoffForm({ ...writeoffForm, reason: e.target.value })}
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                            >
+                                {WASTE_REASONS.map((r) => (
+                                    <option key={r.id} value={r.id}>
+                                        {r.label}
+                                    </option>
+                                ))}
+                            </select>
+                            <textarea
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                                placeholder="ملاحظات"
+                                rows={2}
+                                value={writeoffForm.notes}
+                                onChange={(e) => setWriteoffForm({ ...writeoffForm, notes: e.target.value })}
+                            />
+                            <input
+                                className="px-3 py-2 rounded-lg border border-gray-200"
+                                placeholder="رابط إيصال / مستند"
+                                value={writeoffForm.receipt_url}
+                                onChange={(e) => setWriteoffForm({ ...writeoffForm, receipt_url: e.target.value })}
+                            />
+                        </div>
+                        {writeoffError && <p className="mt-2 text-sm font-bold text-red-600">{writeoffError}</p>}
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button type="button" onClick={() => setShowWriteoffModal(false)} className="px-4 py-2 rounded-lg border border-gray-200 font-bold">
+                                إلغاء
+                            </button>
+                            <button type="submit" disabled={savingWriteoff} className="px-4 py-2 rounded-lg bg-[#071C3B] text-white font-bold disabled:opacity-50">
+                                {savingWriteoff ? 'جارٍ الحفظ...' : 'حفظ'}
+                            </button>
+                        </div>
+                    </form>
                 </div>
             )}
 

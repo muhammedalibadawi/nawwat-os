@@ -1,14 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, Plus, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FileText, Inbox, Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
+import { fetchTenantFinance, type TenantFinance } from '../services/tenantFinance';
+import { fetchLatestFxRate } from '../services/fxRates';
+import { getCountryPreset, type CountryCode } from '../services/countryConfig';
 
 type InvoiceStatus = 'all' | 'paid' | 'partial' | 'unpaid' | 'overdue' | 'sent';
 
-type LineForm = { description: string; quantity: string; unit_price: string; tax_rate: string };
+type LineForm = { description: string; quantity: string; unit_price: string };
 
-const VAT = 5;
+const INVOICE_CURRENCIES = ['AED', 'SAR', 'USD', 'EUR', 'GBP', 'KWD', 'BHD', 'OMR', 'QAR', 'EGP'] as const;
+
+function formatMoney(amount: number, cur: string) {
+    return `${cur} ${amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
 
 function todayISO() {
     return new Date().toISOString().slice(0, 10);
@@ -37,9 +44,12 @@ export default function InvoicesScreen() {
         invoice_kind: 'sale' as 'sale' | 'service',
         notes: '',
     });
-    const [lines, setLines] = useState<LineForm[]>([
-        { description: '', quantity: '1', unit_price: '0', tax_rate: String(VAT) },
-    ]);
+    const [lines, setLines] = useState<LineForm[]>([{ description: '', quantity: '1', unit_price: '0' }]);
+
+    const [tenantFinance, setTenantFinance] = useState<TenantFinance | null>(null);
+    const [invoiceCurrency, setInvoiceCurrency] = useState('AED');
+    const [exchangeRate, setExchangeRate] = useState('1');
+    const [tenantComms, setTenantComms] = useState<{ whatsapp_api_key: string | null }>({ whatsapp_api_key: null });
 
     const [payModal, setPayModal] = useState<any | null>(null);
     const [payAmount, setPayAmount] = useState('');
@@ -58,7 +68,9 @@ export default function InvoicesScreen() {
         try {
             const { data, error: queryError } = await supabase
                 .from('invoices')
-                .select('id,invoice_no,total,status,created_at,amount_paid,issue_date,due_date,contact_id,invoice_type,subtotal,tax_amount')
+                .select(
+                    'id,invoice_no,total,status,created_at,amount_paid,issue_date,due_date,contact_id,invoice_type,subtotal,tax_amount,currency,currency_code,exchange_rate'
+                )
                 .eq('tenant_id', user.tenant_id)
                 .order('created_at', { ascending: false });
             if (queryError) throw queryError;
@@ -73,14 +85,57 @@ export default function InvoicesScreen() {
 
     const loadContacts = async () => {
         if (!user?.tenant_id) return;
-        const { data } = await supabase
-            .from('contacts')
-            .select('id,name,email,type')
-            .eq('tenant_id', user.tenant_id)
-            .eq('type', 'customer')
-            .order('name');
-        setContacts(data ?? []);
+        try {
+            const { data } = await supabase
+                .from('contacts')
+                .select('id,name,email,type,phone')
+                .eq('tenant_id', user.tenant_id)
+                .eq('type', 'customer')
+                .order('name');
+            setContacts(data ?? []);
+        } catch {
+            setContacts([]);
+        }
     };
+
+    const loadTenantForInvoice = useCallback(async () => {
+        if (!user?.tenant_id) return;
+        try {
+            const fin = await fetchTenantFinance(user.tenant_id);
+            setTenantFinance(fin);
+            setInvoiceCurrency(fin.defaultCurrency || 'AED');
+            setExchangeRate('1');
+        } catch {
+            setTenantFinance(null);
+        }
+    }, [user?.tenant_id]);
+
+    useEffect(() => {
+        if (showCreate && user?.tenant_id) {
+            void loadTenantForInvoice();
+        }
+    }, [showCreate, user?.tenant_id, loadTenantForInvoice]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            if (!showCreate || !user?.tenant_id || !tenantFinance) return;
+            const def = tenantFinance.defaultCurrency || 'AED';
+            if (invoiceCurrency === def) {
+                if (!cancelled) setExchangeRate('1');
+                return;
+            }
+            try {
+                const r = await fetchLatestFxRate(user.tenant_id, invoiceCurrency, def);
+                if (!cancelled) setExchangeRate(String(r));
+            } catch {
+                if (!cancelled) setExchangeRate('1');
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [showCreate, invoiceCurrency, tenantFinance?.defaultCurrency, user?.tenant_id]);
 
     useEffect(() => {
         loadInvoices();
@@ -88,6 +143,22 @@ export default function InvoicesScreen() {
 
     useEffect(() => {
         loadContacts();
+    }, [user?.tenant_id]);
+
+    useEffect(() => {
+        if (!user?.tenant_id) return;
+        void (async () => {
+            try {
+                const { data: t } = await supabase
+                    .from('tenants')
+                    .select('whatsapp_api_key')
+                    .eq('id', user.tenant_id)
+                    .single();
+                setTenantComms({ whatsapp_api_key: (t as any)?.whatsapp_api_key ?? null });
+            } catch {
+                setTenantComms({ whatsapp_api_key: null });
+            }
+        })();
     }, [user?.tenant_id]);
 
     const filtered = useMemo(() => {
@@ -121,26 +192,36 @@ export default function InvoicesScreen() {
         return `INV-${year}-${String(next).padStart(3, '0')}`;
     };
 
-    const lineTotals = (l: LineForm) => {
+    const [defaultVatRate, setDefaultVatRate] = useState(5);
+
+    useEffect(() => {
+        if (!user?.tenant_id) return;
+        void fetchTenantFinance(user.tenant_id).then((f) => setDefaultVatRate(f.taxRate));
+    }, [user?.tenant_id]);
+
+    const presetCode = (tenantFinance?.preset?.code || tenantFinance?.countryCode || 'UAE') as CountryCode;
+    const hideVat = presetCode === 'KWT' || presetCode === 'QAT';
+    const effectiveTaxRate = hideVat ? 0 : Number(tenantFinance?.taxRate ?? defaultVatRate ?? 5);
+
+    const lineNet = (l: LineForm) => {
         const q = Number(l.quantity || 0);
         const p = Number(l.unit_price || 0);
-        const tr = Number(l.tax_rate || 0);
-        const net = q * p;
-        const tax = (net * tr) / 100;
-        const lineTotal = net + tax;
-        return { net, tax, lineTotal };
+        return q * p;
     };
 
     const createSummary = useMemo(() => {
         let sub = 0;
-        let tax = 0;
         lines.forEach((l) => {
-            const t = lineTotals(l);
-            sub += t.net;
-            tax += t.tax;
+            sub += lineNet(l);
         });
+        const tax = hideVat ? 0 : (sub * effectiveTaxRate) / 100;
         return { subtotal: sub, tax, total: sub + tax };
-    }, [lines]);
+    }, [lines, hideVat, effectiveTaxRate]);
+
+    const taxLabelAr = () => {
+        const p = getCountryPreset(presetCode);
+        return hideVat ? '' : `الضريبة: VAT ${effectiveTaxRate}% (${p?.labelAr ?? presetCode})`;
+    };
 
     const saveInvoice = async () => {
         if (!user?.tenant_id) return;
@@ -170,6 +251,8 @@ export default function InvoicesScreen() {
 
             const invNo = await nextInvoiceNo();
             const { subtotal, tax, total } = createSummary;
+            const xr = Math.max(0.000001, Number(exchangeRate) || 1);
+            const taxLocal = tax * xr;
             const statusIssued = 'sent';
             const { data: inv, error: invErr } = await supabase
                 .from('invoices')
@@ -183,31 +266,36 @@ export default function InvoicesScreen() {
                     due_date: createForm.due_date,
                     subtotal,
                     tax_amount: tax,
+                    tax_amount_local: taxLocal,
                     total,
                     amount_paid: 0,
                     notes: createForm.notes || null,
+                    currency: invoiceCurrency,
+                    currency_code: invoiceCurrency,
+                    exchange_rate: xr,
                 })
                 .select('id')
                 .single();
             if (invErr) throw invErr;
 
-            const itemRows = lines
-                .filter((l) => l.description.trim())
-                .map((l, idx) => {
-                    const t = lineTotals(l);
-                    return {
-                        tenant_id: user.tenant_id,
-                        invoice_id: inv.id,
-                        name: l.description.trim(),
-                        quantity: Number(l.quantity || 0),
-                        unit_price: Number(l.unit_price || 0),
-                        tax_rate: Number(l.tax_rate || 0),
-                        tax_amount: t.tax,
-                        net_amount: t.net,
-                        line_total: t.lineTotal,
-                        sort_order: idx,
-                    };
-                });
+            const filteredLines = lines.filter((l) => l.description.trim());
+            const itemRows = filteredLines.map((l, idx) => {
+                const net = lineNet(l);
+                const lineTax =
+                    subtotal > 0 && !hideVat ? tax * (net / subtotal) : 0;
+                return {
+                    tenant_id: user.tenant_id,
+                    invoice_id: inv.id,
+                    name: l.description.trim(),
+                    quantity: Number(l.quantity || 0),
+                    unit_price: Number(l.unit_price || 0),
+                    tax_rate: effectiveTaxRate,
+                    tax_amount: lineTax,
+                    net_amount: net,
+                    line_total: net + lineTax,
+                    sort_order: idx,
+                };
+            });
             if (itemRows.length === 0) throw new Error('أضف صنفاً واحداً على الأقل');
             const { error: liErr } = await supabase.from('invoice_items').insert(itemRows);
             if (liErr) {
@@ -224,7 +312,7 @@ export default function InvoicesScreen() {
                 invoice_kind: 'sale',
                 notes: '',
             });
-            setLines([{ description: '', quantity: '1', unit_price: '0', tax_rate: String(VAT) }]);
+            setLines([{ description: '', quantity: '1', unit_price: '0' }]);
             await loadInvoices();
         } catch (err: any) {
             setError(err?.message ?? 'فشل حفظ الفاتورة');
@@ -357,7 +445,7 @@ export default function InvoicesScreen() {
                               name: it.name || 'إشعار دائن',
                               quantity: q,
                               unit_price: -up,
-                              tax_rate: Number(it.tax_rate ?? VAT),
+                              tax_rate: Number(it.tax_rate ?? defaultVatRate),
                               tax_amount: -tax,
                               net_amount: -net,
                               line_total: -lineTot,
@@ -371,7 +459,7 @@ export default function InvoicesScreen() {
                               name: `إشعار دائن — ${row.invoice_no}`,
                               quantity: 1,
                               unit_price: -absTotal,
-                              tax_rate: VAT,
+                              tax_rate: defaultVatRate,
                               tax_amount: 0,
                               net_amount: -absTotal,
                               line_total: -absTotal,
@@ -390,12 +478,54 @@ export default function InvoicesScreen() {
         }
     };
 
-    const whatsappPlaceholder = () => {
-        alert('سيتم ربط واتساب قريباً');
+    const sendWhatsApp = async (row: any) => {
+        try {
+            if (tenantComms.whatsapp_api_key) {
+                setError('إرسال عبر Meta API — قريباً');
+                return;
+            }
+            let phone = '';
+            if (row.contact_id) {
+                const { data: c } = await supabase
+                    .from('contacts')
+                    .select('phone')
+                    .eq('tenant_id', user!.tenant_id!)
+                    .eq('id', row.contact_id)
+                    .maybeSingle();
+                phone = String((c as any)?.phone || '').replace(/\D/g, '');
+            }
+            if (!phone || phone.length < 8) {
+                setError('لا يوجد رقم هاتف للعميل');
+                return;
+            }
+            const cur = String(row.currency_code || row.currency || 'AED');
+            const message = `فاتورة رقم ${row.invoice_no}
+المبلغ: ${row.total} ${cur}
+الحالة: ${row.status}
+شكراً لتعاملكم معنا`;
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+        } catch (e: any) {
+            setError(e?.message ?? 'فشل فتح واتساب');
+        }
     };
 
     const canPay = (r: any) => ['unpaid', 'partial', 'sent', 'overdue'].includes(String(r.status || '').toLowerCase());
     const isConfirmed = (r: any) => ['paid', 'sent', 'partial'].includes(String(r.status || '').toLowerCase());
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+                e.preventDefault();
+                setShowCreate(true);
+            }
+            if (e.key === 'Escape') {
+                setShowCreate(false);
+                setPayModal(null);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, []);
 
     return (
         <div className="p-8 h-full text-gray-700 font-nunito" dir="rtl">
@@ -437,7 +567,10 @@ export default function InvoicesScreen() {
                 {loading && <div className="p-10 text-center font-semibold text-gray-500">جاري تحميل الفواتير...</div>}
                 {!loading && error && <div className="p-10 text-center font-semibold text-red-600">{error}</div>}
                 {!loading && !error && filtered.length === 0 && (
-                    <div className="p-10 text-center font-semibold text-gray-500">لا توجد فواتير مطابقة</div>
+                    <div className="p-12 flex flex-col items-center justify-center text-gray-500 gap-3">
+                        <Inbox className="w-14 h-14 text-gray-300" strokeWidth={1.25} />
+                        <span className="font-bold">لا توجد بيانات بعد</span>
+                    </div>
                 )}
 
                 {!loading && !error && filtered.length > 0 && (
@@ -459,6 +592,7 @@ export default function InvoicesScreen() {
                                     const total = Number(row.total ?? 0);
                                     const paid = Number(row.amount_paid ?? 0);
                                     const remaining = Math.max(0, total - paid);
+                                    const cur = String(row.currency_code || row.currency || 'AED');
                                     return (
                                         <tr key={row.id} className="hover:bg-gray-50">
                                             <td className="px-4 py-4 font-bold text-[#071C3B]">{row.invoice_no ?? row.id}</td>
@@ -469,9 +603,9 @@ export default function InvoicesScreen() {
                                                       ? new Date(row.created_at).toLocaleDateString('ar-AE')
                                                       : '—'}
                                             </td>
-                                            <td className="px-4 py-4 font-bold">AED {total.toFixed(2)}</td>
-                                            <td className="px-4 py-4">AED {paid.toFixed(2)}</td>
-                                            <td className="px-4 py-4">AED {remaining.toFixed(2)}</td>
+                                            <td className="px-4 py-4 font-bold">{formatMoney(total, cur)}</td>
+                                            <td className="px-4 py-4">{formatMoney(paid, cur)}</td>
+                                            <td className="px-4 py-4">{formatMoney(remaining, cur)}</td>
                                             <td className="px-4 py-4">
                                                 <span className={`px-2 py-1 rounded-md text-xs font-bold ${badgeClass(row.status)}`}>
                                                     {row.status ?? '—'}
@@ -488,7 +622,7 @@ export default function InvoicesScreen() {
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={whatsappPlaceholder}
+                                                        onClick={() => sendWhatsApp(row)}
                                                         className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold"
                                                     >
                                                         واتساب
@@ -584,7 +718,39 @@ export default function InvoicesScreen() {
                                     <option value="service">خدمة</option>
                                 </select>
                             </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-500">العملة</label>
+                                <select
+                                    className="w-full border rounded-lg px-3 py-2 mt-1"
+                                    value={invoiceCurrency}
+                                    onChange={(e) => setInvoiceCurrency(e.target.value)}
+                                >
+                                    {INVOICE_CURRENCIES.map((c) => (
+                                        <option key={c} value={c}>
+                                            {c}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            {tenantFinance && invoiceCurrency !== (tenantFinance.defaultCurrency || 'AED') && (
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500">
+                                        سعر الصرف ({invoiceCurrency} → {tenantFinance.defaultCurrency || 'AED'})
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="0.000001"
+                                        className="w-full border rounded-lg px-3 py-2 mt-1"
+                                        value={exchangeRate}
+                                        onChange={(e) => setExchangeRate(e.target.value)}
+                                    />
+                                </div>
+                            )}
                         </div>
+
+                        {tenantFinance && (
+                            <p className="text-sm font-bold text-cyan-800 mb-3">{taxLabelAr()}</p>
+                        )}
 
                         <h3 className="font-bold mb-2">الأصناف</h3>
                         <table className="w-full text-xs mb-2">
@@ -593,14 +759,18 @@ export default function InvoicesScreen() {
                                     <th className="text-start py-1">الوصف</th>
                                     <th className="text-start py-1">الكمية</th>
                                     <th className="text-start py-1">السعر</th>
-                                    <th className="text-start py-1">الضريبة %</th>
                                     <th className="text-start py-1">الإجمالي</th>
                                     <th className="text-start py-1 w-10"></th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {lines.map((line, idx) => {
-                                    const t = lineTotals(line);
+                                    const net = lineNet(line);
+                                    const share =
+                                        hideVat || createSummary.subtotal <= 0
+                                            ? 0
+                                            : createSummary.tax * (net / createSummary.subtotal);
+                                    const lineTot = net + share;
                                     return (
                                         <tr key={idx}>
                                             <td className="pe-1">
@@ -633,17 +803,7 @@ export default function InvoicesScreen() {
                                                     }
                                                 />
                                             </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    className="w-16 border rounded px-2 py-1"
-                                                    value={line.tax_rate}
-                                                    onChange={(e) =>
-                                                        setLines(lines.map((x, i) => (i === idx ? { ...x, tax_rate: e.target.value } : x)))
-                                                    }
-                                                />
-                                            </td>
-                                            <td className="font-bold whitespace-nowrap">{t.lineTotal.toFixed(2)}</td>
+                                            <td className="font-bold whitespace-nowrap">{lineTot.toFixed(2)}</td>
                                             <td>
                                                 <button
                                                     type="button"
@@ -665,7 +825,7 @@ export default function InvoicesScreen() {
                         <button
                             type="button"
                             className="mb-4 px-3 py-2 bg-gray-100 rounded-lg text-sm font-bold"
-                            onClick={() => setLines([...lines, { description: '', quantity: '1', unit_price: '0', tax_rate: String(VAT) }])}
+                            onClick={() => setLines([...lines, { description: '', quantity: '1', unit_price: '0' }])}
                         >
                             إضافة صنف
                         </button>
@@ -683,15 +843,23 @@ export default function InvoicesScreen() {
                         <div className="mt-4 p-4 bg-gray-50 rounded-xl space-y-1 text-sm">
                             <div className="flex justify-between">
                                 <span>المجموع الفرعي</span>
-                                <span className="font-bold">{createSummary.subtotal.toFixed(2)} AED</span>
+                                <span className="font-bold">
+                                    {createSummary.subtotal.toFixed(2)} {invoiceCurrency}
+                                </span>
                             </div>
-                            <div className="flex justify-between">
-                                <span>ضريبة القيمة المضافة ({VAT}%)</span>
-                                <span className="font-bold">{createSummary.tax.toFixed(2)} AED</span>
-                            </div>
+                            {!hideVat && (
+                                <div className="flex justify-between">
+                                    <span>ضريبة القيمة المضافة ({effectiveTaxRate}%)</span>
+                                    <span className="font-bold">
+                                        {createSummary.tax.toFixed(2)} {invoiceCurrency}
+                                    </span>
+                                </div>
+                            )}
                             <div className="flex justify-between text-lg border-t pt-2">
                                 <span className="font-black">الإجمالي</span>
-                                <span className="font-black text-[#071C3B]">{createSummary.total.toFixed(2)} AED</span>
+                                <span className="font-black text-[#071C3B]">
+                                    {createSummary.total.toFixed(2)} {invoiceCurrency}
+                                </span>
                             </div>
                         </div>
 

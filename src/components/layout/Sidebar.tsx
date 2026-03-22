@@ -82,6 +82,9 @@ export const Sidebar: React.FC = () => {
                 <NavItem to="/accounting" title="المحاسبة" icon={Calculator}>
                     المحاسبة
                 </NavItem>
+                <NavItem to="/cheques" title="الشيكات" icon={FileText}>
+                    الشيكات
+                </NavItem>
                 <NavItem to="/logistics" title="الشحن والتوصيل" icon={Truck}>
                     الشحن والتوصيل
                 </NavItem>
@@ -121,6 +124,18 @@ export const Sidebar: React.FC = () => {
                     <ExternalLink size={18} className="shrink-0 opacity-55" />
                     <span className={`flex-1 overflow-hidden transition-all duration-400 ${sidebarMini ? 'opacity-0 max-w-0' : 'max-w-[160px]'}`}>
                         بوابة الموظف ↗
+                    </span>
+                </a>
+                <a
+                    href="/supplier-portal"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${navItemClass(false)} no-underline`}
+                    title="بوابة المورد"
+                >
+                    <ExternalLink size={18} className="shrink-0 opacity-55" />
+                    <span className={`flex-1 overflow-hidden transition-all duration-400 ${sidebarMini ? 'opacity-0 max-w-0' : 'max-w-[160px]'}`}>
+                        بوابة المورد ↗
                     </span>
                 </a>
 

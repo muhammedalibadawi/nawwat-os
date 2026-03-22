@@ -40,6 +40,8 @@ const ProfileScreen = React.lazy(() => import('./pages/ProfileScreen'));
 const CommerceScreen = React.lazy(() => import('./pages/CommerceScreen'));
 const CustomerPortalPage = React.lazy(() => import('./pages/CustomerPortalPage'));
 const EmployeePortalPage = React.lazy(() => import('./pages/EmployeePortalPage'));
+const SupplierPortalPage = React.lazy(() => import('./pages/SupplierPortalPage'));
+const ChequesScreen = React.lazy(() => import('./pages/ChequesScreen'));
 
 const GlobalLoadingSpinner = () => (
   <div className="w-full h-full min-h-[50vh] flex flex-col items-center justify-center gap-4">
@@ -78,6 +80,13 @@ function ErrorBoundaryWrapper() {
   return <ErrorBoundary pathname={location.pathname}><Outlet /></ErrorBoundary>;
 }
 
+function ChequesRoute() {
+  return (
+    <RoleBasedRoute allowedRoles={['owner', 'master_admin', 'accountant']}>
+      <ChequesScreen />
+    </RoleBasedRoute>
+  );
+}
 
 export default function App() {
   return (
@@ -92,6 +101,7 @@ export default function App() {
           <Route path="/suspended" element={<SuspendedScreen />} />
           <Route path="/portal" element={<Suspense fallback={<GlobalLoadingSpinner />}><CustomerPortalPage /></Suspense>} />
           <Route path="/employee-portal" element={<Suspense fallback={<GlobalLoadingSpinner />}><EmployeePortalPage /></Suspense>} />
+          <Route path="/supplier-portal" element={<Suspense fallback={<GlobalLoadingSpinner />}><SupplierPortalPage /></Suspense>} />
           <Route path="/" element={
             <ProtectedRoute>
               <MainLayout><Outlet /></MainLayout>
@@ -109,6 +119,7 @@ export default function App() {
               <Route path="hr" element={<RoleBasedRoute><HRScreen /></RoleBasedRoute>} />
               <Route path="commerce" element={<RoleBasedRoute><CommerceScreen /></RoleBasedRoute>} />
               <Route path="accounting" element={<RoleBasedRoute><AccountingScreen /></RoleBasedRoute>} />
+              <Route path="cheques" element={<Suspense fallback={<GlobalLoadingSpinner />}><ChequesRoute /></Suspense>} />
               <Route path="collection" element={<RoleBasedRoute><CollectionScreen /></RoleBasedRoute>} />
               <Route path="logistics" element={<RoleBasedRoute><LogisticsScreen /></RoleBasedRoute>} />
               <Route path="production" element={<RoleBasedRoute><ProductionScreen /></RoleBasedRoute>} />

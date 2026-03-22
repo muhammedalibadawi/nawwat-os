@@ -26,6 +26,91 @@ export default function ReportsScreen() {
     const [receivables, setReceivables] = useState<any[]>([]);
     const [inventoryVal, setInventoryVal] = useState<{ rows: any[]; total: number }>({ rows: [], total: 0 });
 
+    const [plPreset, setPlPreset] = useState<'today' | 'month' | 'quarter' | 'year' | 'custom'>('month');
+    const [plFrom, setPlFrom] = useState('');
+    const [plTo, setPlTo] = useState('');
+    const [plStmt, setPlStmt] = useState({ revenue: 0, cogs: 0, opex: 0, gross: 0, net: 0 });
+    const [plStmtLoading, setPlStmtLoading] = useState(false);
+
+    useEffect(() => {
+        const run = async () => {
+            if (!user?.tenant_id) return;
+            setPlStmtLoading(true);
+            try {
+                const now = new Date();
+                let start: Date;
+                let end = new Date();
+                end.setHours(23, 59, 59, 999);
+                if (plPreset === 'today') {
+                    start = new Date(now);
+                    start.setHours(0, 0, 0, 0);
+                } else if (plPreset === 'month') {
+                    start = new Date(now.getFullYear(), now.getMonth(), 1);
+                } else if (plPreset === 'quarter') {
+                    const m = Math.floor(now.getMonth() / 3) * 3;
+                    start = new Date(now.getFullYear(), m, 1);
+                } else if (plPreset === 'year') {
+                    start = new Date(now.getFullYear(), 0, 1);
+                } else {
+                    start = plFrom ? new Date(plFrom) : new Date(now.getFullYear(), now.getMonth(), 1);
+                    start.setHours(0, 0, 0, 0);
+                    end = plTo ? new Date(plTo) : now;
+                    end.setHours(23, 59, 59, 999);
+                }
+                const startIso = start.toISOString();
+                const endIso = end.toISOString();
+                const startDateStr = start.toISOString().slice(0, 10);
+                const endDateStr = end.toISOString().slice(0, 10);
+
+                const [invRes, expRes, movRes] = await Promise.all([
+                    supabase
+                        .from('invoices')
+                        .select('total')
+                        .eq('tenant_id', user.tenant_id)
+                        .eq('status', 'paid')
+                        .eq('invoice_type', 'sale')
+                        .gte('created_at', startIso)
+                        .lte('created_at', endIso),
+                    supabase
+                        .from('expenses')
+                        .select('amount')
+                        .eq('tenant_id', user.tenant_id)
+                        .gte('expense_date', startDateStr)
+                        .lte('expense_date', endDateStr),
+                    supabase
+                        .from('inventory_movements')
+                        .select('quantity, unit_cost, total_cost')
+                        .eq('tenant_id', user.tenant_id)
+                        .eq('movement_type', 'sale')
+                        .gte('created_at', startIso)
+                        .lte('created_at', endIso),
+                ]);
+                if (invRes.error) throw invRes.error;
+                if (expRes.error) throw expRes.error;
+                if (movRes.error) throw movRes.error;
+
+                const revenue = (invRes.data ?? []).reduce((s, r: any) => s + Number(r.total ?? 0), 0);
+                const opex = (expRes.data ?? []).reduce((s, r: any) => s + Number(r.amount ?? 0), 0);
+                const cogs = (movRes.data ?? []).reduce((s, r: any) => {
+                    const tc = Number((r as any).total_cost ?? 0);
+                    if (tc) return s + Math.abs(tc);
+                    const q = Math.abs(Number(r.quantity ?? 0));
+                    const c = Number(r.unit_cost ?? 0);
+                    return s + q * c;
+                }, 0);
+                const gross = revenue - cogs;
+                const net = gross - opex;
+                setPlStmt({ revenue, cogs, opex, gross, net });
+            } catch (err) {
+                console.error(err);
+                setPlStmt({ revenue: 0, cogs: 0, opex: 0, gross: 0, net: 0 });
+            } finally {
+                setPlStmtLoading(false);
+            }
+        };
+        void run();
+    }, [user?.tenant_id, plPreset, plFrom, plTo]);
+
     useEffect(() => {
         const load = async () => {
             if (!user?.tenant_id) return;
@@ -289,47 +374,104 @@ export default function ReportsScreen() {
                         </div>
                     </section>
 
-                    <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                    <section id="pl-print-area" className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm print:shadow-none">
                         <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                            <h2 className="font-black">هـ) تقرير الأرباح والخسائر (إيرادات مدفوعة مقابل مصروفات)</h2>
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    exportExcel(
-                                        [
-                                            { بند: 'الإيرادات_فواتير_مدفوعة', مبلغ: pl.revenue },
-                                            { بند: 'المصروفات', مبلغ: pl.expenses },
-                                            { بند: 'صافي_الربح', مبلغ: pl.net },
-                                            ...plMonthly.map((m) => ({
-                                                شهر: m.month,
-                                                إيرادات: m.revenue,
-                                                مصروفات: m.expenses,
-                                                صافي: m.net,
-                                            })),
-                                        ],
-                                        'PL'
-                                    )
-                                }
-                                className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
-                            >
-                                تصدير Excel
-                            </button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                            <div className="rounded-xl bg-emerald-50 p-4 text-center">
-                                <p className="text-xs text-gray-500 font-bold">الإيرادات</p>
-                                <p className="text-2xl font-black text-emerald-700">AED {pl.revenue.toLocaleString('ar-AE')}</p>
-                            </div>
-                            <div className="rounded-xl bg-red-50 p-4 text-center">
-                                <p className="text-xs text-gray-500 font-bold">المصروفات</p>
-                                <p className="text-2xl font-black text-red-700">AED {pl.expenses.toLocaleString('ar-AE')}</p>
-                            </div>
-                            <div className="rounded-xl bg-cyan-50 p-4 text-center">
-                                <p className="text-xs text-gray-500 font-bold">صافي الربح</p>
-                                <p className="text-2xl font-black text-[#071C3B]">AED {pl.net.toLocaleString('ar-AE')}</p>
+                            <h2 className="font-black">هـ) قائمة الدخل (P&amp;L)</h2>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        exportExcel(
+                                            [
+                                                { بند: 'الإيرادات_فواتير_مدفوعة', مبلغ: plStmt.revenue },
+                                                { بند: 'تكلفة_المبيعات_COGS', مبلغ: plStmt.cogs },
+                                                { بند: 'مجمل_الربح', مبلغ: plStmt.gross },
+                                                { بند: 'المصروفات_التشغيلية', مبلغ: plStmt.opex },
+                                                { بند: 'صافي_الربح', مبلغ: plStmt.net },
+                                            ],
+                                            'PL-Statement'
+                                        )
+                                    }
+                                    className="px-3 py-1.5 rounded-lg bg-[#071C3B] text-white text-xs font-bold"
+                                >
+                                    تصدير Excel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => window.print()}
+                                    className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-bold"
+                                >
+                                    تصدير PDF
+                                </button>
                             </div>
                         </div>
-                        <div className="h-64">
+                        <div className="flex flex-wrap gap-2 mb-4">
+                            {(
+                                [
+                                    { id: 'today' as const, label: 'اليوم' },
+                                    { id: 'month' as const, label: 'هذا الشهر' },
+                                    { id: 'quarter' as const, label: 'هذا الربع' },
+                                    { id: 'year' as const, label: 'هذه السنة' },
+                                    { id: 'custom' as const, label: 'مخصص' },
+                                ] as const
+                            ).map((b) => (
+                                <button
+                                    key={b.id}
+                                    type="button"
+                                    onClick={() => setPlPreset(b.id)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${
+                                        plPreset === b.id ? 'bg-[#071C3B] text-white border-[#071C3B]' : 'bg-white border-gray-200'
+                                    }`}
+                                >
+                                    {b.label}
+                                </button>
+                            ))}
+                        </div>
+                        {plPreset === 'custom' && (
+                            <div className="flex flex-wrap gap-2 mb-4 items-center">
+                                <label className="text-xs font-bold text-gray-600">من</label>
+                                <input
+                                    type="date"
+                                    className="border rounded-lg px-2 py-1 text-sm"
+                                    value={plFrom}
+                                    onChange={(e) => setPlFrom(e.target.value)}
+                                />
+                                <label className="text-xs font-bold text-gray-600">إلى</label>
+                                <input
+                                    type="date"
+                                    className="border rounded-lg px-2 py-1 text-sm"
+                                    value={plTo}
+                                    onChange={(e) => setPlTo(e.target.value)}
+                                />
+                            </div>
+                        )}
+                        {plStmtLoading ? (
+                            <div className="py-8 text-center text-gray-500 font-bold">جاري حساب P&amp;L...</div>
+                        ) : (
+                            <div className="space-y-3 max-w-xl font-mono text-sm">
+                                <div className="flex justify-between border-b pb-2">
+                                    <span>الإيرادات (فواتير مدفوعة — sale)</span>
+                                    <span className="font-black">AED {plStmt.revenue.toLocaleString('ar-AE')}</span>
+                                </div>
+                                <div className="flex justify-between text-red-700">
+                                    <span>تكلفة المبيعات (COGS — حركات بيع)</span>
+                                    <span>({plStmt.cogs.toLocaleString('ar-AE')})</span>
+                                </div>
+                                <div className="flex justify-between border-t pt-2 font-black text-emerald-800">
+                                    <span>مجمل الربح</span>
+                                    <span>AED {plStmt.gross.toLocaleString('ar-AE')}</span>
+                                </div>
+                                <div className="flex justify-between text-red-700">
+                                    <span>المصروفات التشغيلية</span>
+                                    <span>({plStmt.opex.toLocaleString('ar-AE')})</span>
+                                </div>
+                                <div className="flex justify-between border-t-2 pt-2 text-lg font-black text-[#071C3B]">
+                                    <span>صافي الربح</span>
+                                    <span>AED {plStmt.net.toLocaleString('ar-AE')}</span>
+                                </div>
+                            </div>
+                        )}
+                        <div className="h-64 mt-8">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={plMonthly}>
                                     <CartesianGrid strokeDasharray="3 3" />

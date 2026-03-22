@@ -33,10 +33,13 @@ interface PosState {
     subtotal: number;
     vatTotal: number;
     grandTotal: number;
+    /** VAT percent e.g. 5 for UAE, 0 for Kuwait */
+    vatRatePercent: number;
     offlineQueue: any[];
     isInitialized: boolean;
 
     initStore: () => Promise<void>;
+    setVatRatePercent: (percent: number) => void;
     addItem: (product: Product) => void;
     removeItem: (productId: string) => void;
     updateQuantity: (productId: string, qty: number) => void;
@@ -48,17 +51,19 @@ interface PosState {
         contactId?: string | null;
         paymentMethod: 'cash' | 'card' | 'installment';
         amountPaid: number;
+        currency?: string;
+        exchangeRate?: number;
     }) => Promise<{ orderId: string; invoiceId: string | null } | null>;
     syncOfflineOrders: () => Promise<void>;
 }
 
-const VAT_RATE = 0.15; // 15% KSA/UAE Standard VAT
 const CART_STORAGE_KEY = 'nawwat_pos_cart';
 const QUEUE_STORAGE_KEY = 'nawwat_offline_orders';
 
-const calculateTotals = (cart: CartItem[]) => {
+const calculateTotals = (cart: CartItem[], vatRatePercent: number) => {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const vatTotal = subtotal * VAT_RATE;
+    const frac = Math.max(0, vatRatePercent) / 100;
+    const vatTotal = subtotal * frac;
     return { subtotal, vatTotal, grandTotal: subtotal + vatTotal };
 };
 
@@ -67,17 +72,25 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
     subtotal: 0,
     vatTotal: 0,
     grandTotal: 0,
+    vatRatePercent: 5,
     offlineQueue: [],
     isInitialized: false,
+
+    setVatRatePercent: (percent) => {
+        const p = Number.isFinite(percent) ? Math.max(0, percent) : 0;
+        const { cart } = getStore();
+        setStore({ vatRatePercent: p, ...calculateTotals(cart, p) });
+    },
 
     initStore: async () => {
         const savedCart = await get(CART_STORAGE_KEY) || [];
         const savedQueue = await get(QUEUE_STORAGE_KEY) || [];
+        const vatRatePercent = getStore().vatRatePercent ?? 5;
         setStore({
             cart: savedCart,
             offlineQueue: savedQueue,
             isInitialized: true,
-            ...calculateTotals(savedCart),
+            ...calculateTotals(savedCart, vatRatePercent),
         });
     },
 
@@ -87,32 +100,36 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
         const newCart = existing
             ? cart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)
             : [...cart, { ...product, quantity: 1 }];
-        setStore({ cart: newCart, ...calculateTotals(newCart) });
+        const { vatRatePercent } = getStore();
+        setStore({ cart: newCart, ...calculateTotals(newCart, vatRatePercent) });
         set(CART_STORAGE_KEY, newCart);
     },
 
     removeItem: (productId) => {
-        const { cart } = getStore();
+        const { cart, vatRatePercent } = getStore();
         const newCart = cart.filter(item => item.id !== productId);
-        setStore({ cart: newCart, ...calculateTotals(newCart) });
+        setStore({ cart: newCart, ...calculateTotals(newCart, vatRatePercent) });
         set(CART_STORAGE_KEY, newCart);
     },
 
     updateQuantity: (productId, qty) => {
         if (qty <= 0) { getStore().removeItem(productId); return; }
-        const { cart } = getStore();
+        const { cart, vatRatePercent } = getStore();
         const newCart = cart.map(item => item.id === productId ? { ...item, quantity: qty } : item);
-        setStore({ cart: newCart, ...calculateTotals(newCart) });
+        setStore({ cart: newCart, ...calculateTotals(newCart, vatRatePercent) });
         set(CART_STORAGE_KEY, newCart);
     },
 
     clearCart: () => {
-        setStore({ cart: [], subtotal: 0, vatTotal: 0, grandTotal: 0 });
+        const { vatRatePercent } = getStore();
+        setStore({ cart: [], ...calculateTotals([], vatRatePercent) });
         set(CART_STORAGE_KEY, []);
     },
 
-    checkout: async ({ tenantId, userId, contactId, paymentMethod, amountPaid }) => {
-        const { cart, grandTotal, vatTotal, clearCart, offlineQueue } = getStore();
+    checkout: async ({ tenantId, userId, contactId, paymentMethod, amountPaid, currency, exchangeRate }) => {
+        const { cart, grandTotal, vatTotal, clearCart, offlineQueue, vatRatePercent } = getStore();
+        const cur = currency || 'AED';
+        const xr = exchangeRate != null && exchangeRate > 0 ? exchangeRate : 1;
         if (cart.length === 0) return null;
 
         const order = {
@@ -154,9 +171,13 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
                     issue_date: new Date().toISOString().slice(0, 10),
                     subtotal: subtotalExVat,
                     tax_amount: order.vat,
+                    tax_amount_local: order.vat * xr,
                     total: order.total,
                     amount_paid: normalizedPaid,
                     created_by: userId,
+                    currency: cur,
+                    currency_code: cur,
+                    exchange_rate: xr,
                 })
                 .select('id')
                 .single();
@@ -175,7 +196,7 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
                     name: item.name,
                     quantity: item.quantity,
                     unit_price: item.price,
-                    tax_rate: VAT_RATE * 100,
+                    tax_rate: vatRatePercent,
                     tax_amount: lineTax,
                     net_amount: lineNet,
                     line_total: lineNet + lineTax,

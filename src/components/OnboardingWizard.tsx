@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { COUNTRY_PRESETS, getCountryPreset } from '../services/countryConfig';
 
 export default function OnboardingWizard({ onDone }: { onDone: () => void }) {
   const { user } = useAuth();
@@ -25,7 +26,19 @@ export default function OnboardingWizard({ onDone }: { onDone: () => void }) {
   const next = async () => {
     if (!user?.tenant_id) return;
     if (step === 1) {
-      await supabase.from('tenants').update({ name: data.companyName || undefined, country: data.country, currency: data.currency, industry: data.sector }).eq('id', user.tenant_id);
+      const p = getCountryPreset(data.country) || getCountryPreset('UAE');
+      await supabase
+        .from('tenants')
+        .update({
+          name: data.companyName || undefined,
+          country: p?.code || data.country,
+          country_code: p?.code || 'UAE',
+          currency: p?.currency || data.currency,
+          default_currency: p?.currency || data.currency,
+          default_tax_rate: p?.vatRate ?? Number(data.vat || 0),
+          vat_rate: p?.vatRate ?? Number(data.vat || 0),
+        })
+        .eq('id', user.tenant_id);
     }
     if (step === 2) {
       await supabase.from('tenants').update({ vat_rate: Number(data.vat || 0) }).eq('id', user.tenant_id);
@@ -54,9 +67,35 @@ export default function OnboardingWizard({ onDone }: { onDone: () => void }) {
             <h2 className="text-2xl font-black">مرحباً بك في NawwatOS!</h2>
             <input className="w-full px-3 py-2 rounded text-black" placeholder="اسم الشركة" value={data.companyName} onChange={(e) => setData({ ...data, companyName: e.target.value })} />
             <select className="w-full px-3 py-2 rounded text-black" value={data.sector} onChange={(e) => setData({ ...data, sector: e.target.value })}><option>مطعم</option><option>متجر</option><option>خدمات</option><option>استيراد</option><option>عقارات</option><option>أخرى</option></select>
+            <label className="text-sm font-bold text-white/80">الدولة</label>
+            <select
+              className="w-full px-3 py-2 rounded text-black"
+              value={data.country}
+              onChange={(e) => {
+                const p = getCountryPreset(e.target.value);
+                setData({
+                  ...data,
+                  country: e.target.value,
+                  currency: p?.currency || 'AED',
+                  vat: p?.vatRate ?? 5,
+                });
+              }}
+            >
+              {COUNTRY_PRESETS.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.code} | {c.labelAr}
+                </option>
+              ))}
+            </select>
             <div className="grid grid-cols-2 gap-2">
-              <select className="w-full px-3 py-2 rounded text-black" value={data.country} onChange={(e) => setData({ ...data, country: e.target.value, vat: e.target.value === 'KSA' ? 15 : 5 })}><option>UAE</option><option>KSA</option><option>أخرى</option></select>
-              <select className="w-full px-3 py-2 rounded text-black" value={data.currency} onChange={(e) => setData({ ...data, currency: e.target.value })}><option>AED</option><option>SAR</option><option>USD</option></select>
+              <div>
+                <span className="text-xs text-white/60">العملة</span>
+                <input className="w-full px-3 py-2 rounded text-black bg-white/90" readOnly value={getCountryPreset(data.country)?.currency || 'AED'} />
+              </div>
+              <div>
+                <span className="text-xs text-white/60">ضريبة افتراضية %</span>
+                <input className="w-full px-3 py-2 rounded text-black" type="number" value={data.vat} onChange={(e) => setData({ ...data, vat: Number(e.target.value) })} />
+              </div>
             </div>
           </div>
         )}

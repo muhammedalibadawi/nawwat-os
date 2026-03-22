@@ -7,11 +7,12 @@ import { useAuth } from '../context/AuthContext';
 import { usePosStore, Product, CartItem } from '../store/PosStore';
 import { generateZatcaQR } from '../utils/zatcaQR';
 import { supabase } from '../lib/supabase';
+import { fetchTenantFinance } from '../services/tenantFinance';
 
 const POSScreen: React.FC = () => {
   const { branchName } = useAppContext();
   const { user } = useAuth();
-  const { cart, subtotal, vatTotal, grandTotal, addItem, removeItem, updateQuantity, clearCart, checkout, offlineQueue } = usePosStore();
+  const { cart, subtotal, vatTotal, grandTotal, vatRatePercent, addItem, removeItem, updateQuantity, clearCart, checkout, offlineQueue, setVatRatePercent, initStore } = usePosStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [productsError, setProductsError] = useState('');
@@ -25,6 +26,88 @@ const POSScreen: React.FC = () => {
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [loyaltyBalance, setLoyaltyBalance] = useState<number | null>(null);
+  const [tenantCurrency, setTenantCurrency] = useState('AED');
+  const [countryLabel, setCountryLabel] = useState('UAE');
+  const [quickProducts, setQuickProducts] = useState<Product[]>([]);
+
+  useEffect(() => {
+    void initStore();
+  }, [initStore]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.tenant_id) return;
+      try {
+        const fin = await fetchTenantFinance(user.tenant_id);
+        if (cancelled) return;
+        setVatRatePercent(fin.taxRate);
+        setTenantCurrency(fin.defaultCurrency || 'AED');
+        setCountryLabel(fin.preset?.code || fin.countryCode);
+      } catch {
+        if (!cancelled) setVatRatePercent(5);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.tenant_id, setVatRatePercent]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadQuick() {
+      if (!user?.tenant_id) {
+        setQuickProducts([]);
+        return;
+      }
+      try {
+        const { data: lines, error } = await supabase
+          .from('invoice_items')
+          .select('item_ref')
+          .eq('tenant_id', user.tenant_id)
+          .not('item_ref', 'is', null);
+        if (error) throw error;
+        const counts: Record<string, number> = {};
+        (lines ?? []).forEach((row: { item_ref: string | null }) => {
+          const id = row.item_ref;
+          if (!id) return;
+          counts[id] = (counts[id] ?? 0) + 1;
+        });
+        const topIds = Object.entries(counts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 8)
+          .map(([id]) => id);
+        if (topIds.length === 0) {
+          if (!cancelled) setQuickProducts([]);
+          return;
+        }
+        const { data: items, error: ie } = await supabase
+          .from('items')
+          .select('id,name,sku,selling_price')
+          .eq('tenant_id', user.tenant_id)
+          .in('id', topIds);
+        if (ie) throw ie;
+        const order = new Map(topIds.map((id, i) => [id, i]));
+        const mapped: Product[] = (items ?? [])
+          .map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            sku: item.sku || '',
+            price: Number(item.selling_price ?? 0),
+            category: 'عام',
+            stock: 0,
+          }))
+          .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+        if (!cancelled) setQuickProducts(mapped);
+      } catch {
+        if (!cancelled) setQuickProducts([]);
+      }
+    }
+    loadQuick();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.tenant_id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,6 +223,8 @@ const POSScreen: React.FC = () => {
       contactId: selectedCustomerId || null,
       paymentMethod,
       amountPaid,
+      currency: tenantCurrency,
+      exchangeRate: 1,
     });
     if (result?.orderId) {
       if (result.invoiceId && selectedCustomerId && totalSnapshot > 0) {
@@ -260,6 +345,25 @@ const POSScreen: React.FC = () => {
 
         {/* Left Side: Products Grid */}
         <div className="flex-1 flex flex-col min-w-0 bg-surface-bg p-6 pb-2 overflow-hidden">
+
+          {quickProducts.length > 0 && (
+            <div className="mb-4 shrink-0">
+              <div className="text-xs font-bold text-content-3 mb-2">منتجات سريعة</div>
+              <div className="flex flex-wrap gap-2">
+                {quickProducts.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => addItem(p)}
+                    className="px-3 py-2 rounded-xl text-xs font-bold border border-border bg-surface-card hover:border-cyan/50 hover:bg-cyan-dim/30 transition-colors truncate max-w-[140px]"
+                    title={p.name}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Controls */}
           <div className="flex gap-4 mb-6 shrink-0">
@@ -389,7 +493,7 @@ const POSScreen: React.FC = () => {
                     >
                       <div className="flex-1 min-w-0">
                         <div className="font-bold text-[0.85rem] text-midnight truncate leading-tignt">{item.name}</div>
-                        <div className="text-[0.7rem] text-content-3 font-semibold mt-0.5">AED {item.price.toFixed(2)}</div>
+                        <div className="text-[0.7rem] text-content-3 font-semibold mt-0.5">{tenantCurrency} {item.price.toFixed(2)}</div>
                       </div>
 
                       <div className="flex items-center gap-2 bg-surface-card border border-border rounded-lg p-1">
@@ -451,16 +555,22 @@ const POSScreen: React.FC = () => {
             <div className="flex flex-col gap-2.5 mb-5 text-[0.85rem]">
               <div className="flex justify-between items-center text-content-2">
                 <span className="font-bold">المجموع</span>
-                <span className="font-bold text-midnight">AED {subtotal.toFixed(2)}</span>
+                <span className="font-bold text-midnight">{tenantCurrency} {subtotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between items-center text-content-2">
-                <span className="font-bold">ضريبة القيمة المضافة (15%)</span>
-                <span className="font-bold text-midnight">AED {vatTotal.toFixed(2)}</span>
-              </div>
+              {vatRatePercent > 0 ? (
+                <div className="flex justify-between items-center text-content-2">
+                  <span className="font-bold">
+                    ضريبة القيمة المضافة ({vatRatePercent}% — {countryLabel})
+                  </span>
+                  <span className="font-bold text-midnight">{tenantCurrency} {vatTotal.toFixed(2)}</span>
+                </div>
+              ) : (
+                <div className="text-xs font-bold text-content-3">بدون ضريبة ({countryLabel})</div>
+              )}
               <div className="h-px w-full bg-border my-1" />
               <div className="flex justify-between items-end">
                 <span className="font-extrabold text-midnight text-lg">الإجمالي</span>
-                <span className="font-nunito font-black text-midnight text-2xl text-cyan-600">AED {grandTotal.toFixed(2)}</span>
+                <span className="font-nunito font-black text-midnight text-2xl text-cyan-600">{tenantCurrency} {grandTotal.toFixed(2)}</span>
               </div>
             </div>
 
