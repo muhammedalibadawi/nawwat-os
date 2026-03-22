@@ -27,8 +27,23 @@ const mockInitialOrders: KdsOrder[] = [
         status: 'PENDING',
         targetTimeMs: 5 * 60 * 1000, // 5 mins
         items: [
-            { id: 'p1', name: 'Espresso', price: 15, category: 'Coffee', stock: 100, sku: 'COF-001', quantity: 2, notes: 'Extra hot' },
-            { id: 'p3', name: 'Croissant', price: 12, category: 'Pastry', stock: 20, sku: 'PAS-001', quantity: 1 }
+            {
+                id: 'p1',
+                name: 'Espresso',
+                selling_price: 15,
+                category_id: null,
+                sku: 'COF-001',
+                quantity: 2,
+                notes: 'Extra hot',
+            },
+            {
+                id: 'p3',
+                name: 'Croissant',
+                selling_price: 12,
+                category_id: null,
+                sku: 'PAS-001',
+                quantity: 1,
+            },
         ]
     },
     {
@@ -38,8 +53,24 @@ const mockInitialOrders: KdsOrder[] = [
         status: 'PREPARING',
         targetTimeMs: 6 * 60 * 1000, // 6 mins
         items: [
-            { id: 'p2', name: 'Latte', price: 18, category: 'Coffee', stock: 100, sku: 'COF-002', quantity: 1, notes: 'Almond milk' },
-            { id: 'p4', name: 'Sandwich', price: 25, category: 'Food', stock: 15, sku: 'FOD-001', quantity: 1, notes: 'No mayo' }
+            {
+                id: 'p2',
+                name: 'Latte',
+                selling_price: 18,
+                category_id: null,
+                sku: 'COF-002',
+                quantity: 1,
+                notes: 'Almond milk',
+            },
+            {
+                id: 'p4',
+                name: 'Sandwich',
+                selling_price: 25,
+                category_id: null,
+                sku: 'FOD-001',
+                quantity: 1,
+                notes: 'No mayo',
+            },
         ]
     }
 ];

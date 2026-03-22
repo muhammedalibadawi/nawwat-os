@@ -9,6 +9,10 @@ import { generateZatcaQR } from '../utils/zatcaQR';
 import { supabase } from '../lib/supabase';
 import { fetchTenantFinance } from '../services/tenantFinance';
 
+/** Matches public.items columns used by POS (no stock on items — use stock_levels). */
+const ITEMS_SELECT =
+    'id,name,name_ar,sku,barcode,selling_price,cost_price,is_active,is_sellable,track_stock,item_type,tax_id,is_tax_inclusive,category_id';
+
 const POSScreen: React.FC = () => {
   const { branchName } = useAppContext();
   const { user } = useAuth();
@@ -18,7 +22,7 @@ const POSScreen: React.FC = () => {
   const [productsError, setProductsError] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState('All');
+  const [activeCategory, setActiveCategory] = useState('الكل');
   const [showModal, setShowModal] = useState(false);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'installment'>('cash');
@@ -83,19 +87,29 @@ const POSScreen: React.FC = () => {
         }
         const { data: items, error: ie } = await supabase
           .from('items')
-          .select('id,name,sku,selling_price')
+          .select(ITEMS_SELECT)
           .eq('tenant_id', user.tenant_id)
-          .in('id', topIds);
+          .in('id', topIds)
+          .is('deleted_at', null)
+          .eq('is_active', true);
         if (ie) throw ie;
         const order = new Map(topIds.map((id, i) => [id, i]));
         const mapped: Product[] = (items ?? [])
           .map((item: any) => ({
             id: item.id,
             name: item.name,
+            name_ar: item.name_ar,
             sku: item.sku || '',
-            price: Number(item.selling_price ?? 0),
-            category: 'عام',
-            stock: 0,
+            barcode: item.barcode,
+            selling_price: Number(item.selling_price ?? 0),
+            cost_price: item.cost_price != null ? Number(item.cost_price) : undefined,
+            category_id: item.category_id ?? null,
+            is_active: item.is_active,
+            is_sellable: item.is_sellable,
+            track_stock: item.track_stock,
+            item_type: item.item_type,
+            tax_id: item.tax_id,
+            is_tax_inclusive: item.is_tax_inclusive,
           }))
           .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
         if (!cancelled) setQuickProducts(mapped);
@@ -122,19 +136,29 @@ const POSScreen: React.FC = () => {
       try {
         const { data, error } = await supabase
           .from('items')
-          .select('id,name,sku,selling_price,cost_price,tenant_id')
+          .select(ITEMS_SELECT)
           .eq('tenant_id', user.tenant_id)
           .is('deleted_at', null)
+          .eq('is_active', true)
+          .eq('is_sellable', true)
           .order('name');
         if (error) throw error;
         if (!cancelled) {
           const mapped: Product[] = (data ?? []).map((item: any) => ({
             id: item.id,
             name: item.name,
-            sku: item.sku,
-            price: Number(item.selling_price ?? 0),
-            category: 'عام',
-            stock: 0,
+            name_ar: item.name_ar,
+            sku: item.sku ?? '',
+            barcode: item.barcode,
+            selling_price: Number(item.selling_price ?? 0),
+            cost_price: item.cost_price != null ? Number(item.cost_price) : undefined,
+            category_id: item.category_id ?? null,
+            is_active: item.is_active,
+            is_sellable: item.is_sellable,
+            track_stock: item.track_stock,
+            item_type: item.item_type,
+            tax_id: item.tax_id,
+            is_tax_inclusive: item.is_tax_inclusive,
           }));
           setProducts(mapped);
         }
@@ -197,15 +221,19 @@ const POSScreen: React.FC = () => {
 
   const categories = useMemo(() => {
     const set = new Set<string>(['الكل']);
-    products.forEach((p) => set.add(p.category || 'عام'));
+    products.forEach((p) => set.add(p.category_id ? String(p.category_id) : 'بدون فئة'));
     return Array.from(set);
   }, [products]);
 
   // Filter Products
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || p.sku.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCat = activeCategory === 'الكل' || p.category === activeCategory;
+    return products.filter((p) => {
+      const matchesSearch =
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.name_ar || '').toLowerCase().includes(searchQuery.toLowerCase());
+      const catLabel = p.category_id ? String(p.category_id) : 'بدون فئة';
+      const matchesCat = activeCategory === 'الكل' || catLabel === activeCategory;
       return matchesSearch && matchesCat;
     });
   }, [products, searchQuery, activeCategory]);
@@ -427,7 +455,7 @@ const POSScreen: React.FC = () => {
                 <div className="font-bold text-content text-[0.9rem] leading-tight mb-1 truncate">{product.name}</div>
                 <div className="text-[0.68rem] text-content-4 font-bold mb-3">{product.sku}</div>
                 <div className="mt-auto flex items-center justify-between">
-                  <div className="font-nunito font-extrabold text-midnight text-base">AED {product.price.toFixed(2)}</div>
+                  <div className="font-nunito font-extrabold text-midnight text-base">{tenantCurrency} {product.selling_price.toFixed(2)}</div>
                   <div className="w-7 h-7 bg-surface-bg border border-border rounded-lg flex items-center justify-center text-content-2 group-hover:bg-cyan group-hover:text-midnight group-hover:border-cyan transition-colors">
                     <Plus size={14} strokeWidth={3} />
                   </div>
@@ -493,7 +521,7 @@ const POSScreen: React.FC = () => {
                     >
                       <div className="flex-1 min-w-0">
                         <div className="font-bold text-[0.85rem] text-midnight truncate leading-tignt">{item.name}</div>
-                        <div className="text-[0.7rem] text-content-3 font-semibold mt-0.5">{tenantCurrency} {item.price.toFixed(2)}</div>
+                        <div className="text-[0.7rem] text-content-3 font-semibold mt-0.5">{tenantCurrency} {item.selling_price.toFixed(2)}</div>
                       </div>
 
                       <div className="flex items-center gap-2 bg-surface-card border border-border rounded-lg p-1">
@@ -507,7 +535,7 @@ const POSScreen: React.FC = () => {
                       </div>
 
                       <div className="font-nunito font-extrabold text-[0.95rem] text-midnight w-[75px] text-end pr-1">
-                        {(item.price * item.quantity).toFixed(2)}
+                        {(item.selling_price * item.quantity).toFixed(2)}
                       </div>
                     </motion.div>
                   ))}

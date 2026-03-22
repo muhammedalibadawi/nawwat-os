@@ -17,11 +17,19 @@ import { supabase } from '../lib/supabase';
 export interface Product {
     id: string;
     name: string;
-    price: number;
-    category: string;
-    stock: number;
-    image?: string;
+    name_ar?: string | null;
     sku: string;
+    barcode?: string | null;
+    /** selling_price from items */
+    selling_price: number;
+    cost_price?: number;
+    category_id: string | null;
+    is_active?: boolean;
+    is_sellable?: boolean;
+    track_stock?: boolean;
+    item_type?: string | null;
+    tax_id?: string | null;
+    is_tax_inclusive?: boolean | null;
 }
 
 export interface CartItem extends Product {
@@ -61,7 +69,7 @@ const CART_STORAGE_KEY = 'nawwat_pos_cart';
 const QUEUE_STORAGE_KEY = 'nawwat_offline_orders';
 
 const calculateTotals = (cart: CartItem[], vatRatePercent: number) => {
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const subtotal = cart.reduce((sum, item) => sum + (item.selling_price * item.quantity), 0);
     const frac = Math.max(0, vatRatePercent) / 100;
     const vatTotal = subtotal * frac;
     return { subtotal, vatTotal, grandTotal: subtotal + vatTotal };
@@ -186,7 +194,7 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
             invoiceId = invData.id;
 
             const invoiceItems = cart.map((item, index) => {
-                const lineNet = item.price * item.quantity;
+                const lineNet = item.selling_price * item.quantity;
                 const lineTax =
                     subtotalExVat > 0 ? order.vat * (lineNet / subtotalExVat) : 0;
                 return {
@@ -195,7 +203,7 @@ export const usePosStore = create<PosState>((setStore, getStore) => ({
                     item_ref: item.id,
                     name: item.name,
                     quantity: item.quantity,
-                    unit_price: item.price,
+                    unit_price: item.selling_price,
                     tax_rate: vatRatePercent,
                     tax_amount: lineTax,
                     net_amount: lineNet,

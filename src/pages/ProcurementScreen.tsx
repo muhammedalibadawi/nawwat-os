@@ -2,6 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 
+/** public.items — purchase screen needs id + labels + reference prices (lines use unit_price, not items.selling_price). */
+const ITEMS_SELECT_PO =
+    'id,name,name_ar,sku,barcode,selling_price,cost_price,is_active,is_sellable,track_stock,item_type,tax_id,is_tax_inclusive,category_id';
+
 type PoStatus = 'draft' | 'pending' | 'approved' | 'received' | 'cancelled';
 
 async function getOwnerUserId(tenantId: string): Promise<string | null> {
@@ -34,7 +38,7 @@ export default function ProcurementScreen() {
         supplier_id: '',
         issue_date: '',
         expected_delivery_date: '',
-        lines: [{ item_id: '', qty: 1, price: 0 }],
+        lines: [{ item_id: '', qty: 1, unit_price: 0 }],
     });
     const [expForm, setExpForm] = useState<any>({ description: '', category: '', amount: '', expense_date: '' });
 
@@ -63,7 +67,13 @@ export default function ProcurementScreen() {
                     .eq('tenant_id', user.tenant_id)
                     .order('expense_date', { ascending: false }),
                 supabase.from('contacts').select('id,name,type').eq('tenant_id', user.tenant_id).eq('type', 'supplier'),
-                supabase.from('items').select('id,name').eq('tenant_id', user.tenant_id).limit(500),
+                supabase
+                    .from('items')
+                    .select(ITEMS_SELECT_PO)
+                    .eq('tenant_id', user.tenant_id)
+                    .is('deleted_at', null)
+                    .eq('is_active', true)
+                    .limit(500),
                 supabase.from('warehouses').select('id,name,name_ar').eq('tenant_id', user.tenant_id).eq('is_active', true),
             ]);
             if (poRes.error) throw poRes.error;
@@ -76,7 +86,7 @@ export default function ProcurementScreen() {
             setSuppliers(supRes.data ?? []);
             const imap: Record<string, string> = {};
             (itemsRes.data ?? []).forEach((it: any) => {
-                imap[it.id] = it.name;
+                imap[it.id] = it.name_ar || it.name;
             });
             setItemsById(imap);
             setWarehouses(whRes.data ?? []);
@@ -107,7 +117,10 @@ export default function ProcurementScreen() {
         return poRows.filter((r) => r.status === statusFilter);
     }, [poRows, statusFilter]);
 
-    const poTotal = useMemo(() => poForm.lines.reduce((s: number, l: any) => s + Number(l.qty || 0) * Number(l.price || 0), 0), [poForm.lines]);
+    const poTotal = useMemo(
+        () => poForm.lines.reduce((s: number, l: any) => s + Number(l.qty || 0) * Number(l.unit_price || 0), 0),
+        [poForm.lines]
+    );
 
     const savePo = async () => {
         if (!user?.tenant_id) return;
@@ -144,8 +157,8 @@ export default function ProcurementScreen() {
                     po_id: po.id,
                     item_id: l.item_id,
                     quantity: Number(l.qty || 0),
-                    unit_price: Number(l.price || 0),
-                    total: Number(l.qty || 0) * Number(l.price || 0),
+                    unit_price: Number(l.unit_price || 0),
+                    total: Number(l.qty || 0) * Number(l.unit_price || 0),
                 }));
             if (lines.length > 0) {
                 const { error: liErr } = await supabase.from('purchase_items').insert(lines);
@@ -156,7 +169,7 @@ export default function ProcurementScreen() {
                 supplier_id: '',
                 issue_date: '',
                 expected_delivery_date: '',
-                lines: [{ item_id: '', qty: 1, price: 0 }],
+                lines: [{ item_id: '', qty: 1, unit_price: 0 }],
             });
             await load();
         } catch (err: any) {
@@ -462,18 +475,25 @@ export default function ProcurementScreen() {
                                 />
                                 <input
                                     type="number"
-                                    value={l.price}
+                                    value={l.unit_price}
                                     onChange={(e) =>
                                         setPoForm({
                                             ...poForm,
-                                            lines: poForm.lines.map((x: any, i: number) => (i === idx ? { ...x, price: Number(e.target.value) } : x)),
+                                            lines: poForm.lines.map((x: any, i: number) =>
+                                                i === idx ? { ...x, unit_price: Number(e.target.value) } : x
+                                            ),
                                         })
                                     }
                                     className="border rounded-lg px-3 py-2"
                                 />
                             </div>
                         ))}
-                        <button onClick={() => setPoForm({ ...poForm, lines: [...poForm.lines, { item_id: '', qty: 1, price: 0 }] })} className="px-3 py-2 bg-gray-100 rounded-lg">
+                        <button
+                            onClick={() =>
+                                setPoForm({ ...poForm, lines: [...poForm.lines, { item_id: '', qty: 1, unit_price: 0 }] })
+                            }
+                            className="px-3 py-2 bg-gray-100 rounded-lg"
+                        >
                             أضف صف
                         </button>
                         <div className="font-bold">الإجمالي: AED {poTotal.toLocaleString('ar-AE')}</div>

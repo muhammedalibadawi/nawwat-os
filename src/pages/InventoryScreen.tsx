@@ -22,6 +22,10 @@ interface ItemRow {
     reorder_qty: number | null;
     track_stock: boolean | null;
     is_active: boolean | null;
+    is_sellable: boolean | null;
+    item_type: string | null;
+    tax_id: string | null;
+    is_tax_inclusive: boolean | null;
 }
 
 interface StockLevelRow {
@@ -223,7 +227,9 @@ export default function InventoryScreen() {
             const [itemsRes, stockRes, movRes, whRes, invItemsRes] = await Promise.all([
                 supabase
                     .from('items')
-                    .select('id,name,name_ar,sku,barcode,category_id,cost_price,selling_price,min_price,reorder_point,reorder_qty,track_stock,is_active')
+                    .select(
+                        'id,name,name_ar,sku,barcode,category_id,cost_price,selling_price,min_price,reorder_point,reorder_qty,track_stock,is_active,is_sellable,item_type,tax_id,is_tax_inclusive'
+                    )
                     .eq('tenant_id', user.tenant_id)
                     .is('deleted_at', null)
                     .order('name'),
