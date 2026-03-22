@@ -96,7 +96,7 @@ function validateVatNumber(country: CountryCode, v: string): string | null {
 export default function RegisterPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { refreshUserSession } = useAuth();
+  const { user, refreshUserSession } = useAuth();
 
   const step = Math.min(4, Math.max(1, parseInt(searchParams.get('step') || '1', 10) || 1));
 
@@ -126,6 +126,21 @@ export default function RegisterPage() {
   /** خطوة 3 — إنشاء المستأجر */
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [tenantSyncing, setTenantSyncing] = useState(false);
+  const tenantReady = Boolean(user?.tenant_id);
+
+  const triggerSessionRefresh = useCallback(() => {
+    setTenantSyncing(true);
+    void refreshUserSession()
+      .catch((err) => console.warn('[RegisterPage] refresh failed:', err))
+      .finally(() => setTenantSyncing(false));
+  }, [refreshUserSession]);
+
+  useEffect(() => {
+    if (step !== 4) return;
+    if (user?.tenant_id) setTenantSyncing(false);
+  }, [step, user?.tenant_id]);
 
   const [step2Checked, setStep2Checked] = useState(false);
 
@@ -263,15 +278,9 @@ export default function RegisterPage() {
 
       localStorage.setItem('nawwat_tenant_id', tenantId);
 
-      try {
-        await refreshUserSession();
-      } catch (refreshErr) {
-        console.warn('refresh failed:', refreshErr);
-        // مش مشكلة — نكمل
-      }
-
       setStep(4);
       setLoading(false);
+      triggerSessionRefresh();
     } catch (err: unknown) {
       console.error('Caught error:', err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -568,42 +577,67 @@ export default function RegisterPage() {
               <h1 className="text-xl font-extrabold leading-relaxed">
                 {companyName || 'شركتك'} جاهزة على NawwatOS!
               </h1>
-              <p className="text-white/75 text-sm">اختر من أين تبدأ:</p>
 
-              <div className="w-full flex flex-col gap-3">
-                <button
-                  type="button"
-                  onClick={() => navigate('/inventory')}
-                  className="w-full rounded-2xl border border-[#00CFFF]/40 bg-[#071C3B] hover:bg-[#00CFFF]/10 px-4 py-4 text-right transition-colors"
-                >
-                  <span className="text-2xl me-2">📦</span>
-                  <span className="font-extrabold text-[#00CFFF]">أضف أول منتج</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/invoices')}
-                  className="w-full rounded-2xl border border-[#00CFFF]/40 bg-[#071C3B] hover:bg-[#00CFFF]/10 px-4 py-4 text-right transition-colors"
-                >
-                  <span className="text-2xl me-2">📄</span>
-                  <span className="font-extrabold text-[#00CFFF]">أنشئ أول فاتورة</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/pos')}
-                  className="w-full rounded-2xl border border-[#00CFFF]/40 bg-[#071C3B] hover:bg-[#00CFFF]/10 px-4 py-4 text-right transition-colors"
-                >
-                  <span className="text-2xl me-2">🛒</span>
-                  <span className="font-extrabold text-[#00CFFF]">ابدأ من نقطة البيع</span>
-                </button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                className="text-xs text-white/45 hover:text-white/70 underline-offset-2 hover:underline mt-2"
-              >
-                تخطي — اذهب للوحة التحكم
-              </button>
+              {!tenantReady ? (
+                <>
+                  <div className="flex items-center gap-2 text-sm text-white/75">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#00CFFF]" />
+                    {tenantSyncing ? 'جاري تفعيل مساحة العمل...' : 'جارٍ انتظار تحديث الجلسة...'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={triggerSessionRefresh}
+                    disabled={tenantSyncing}
+                    className="rounded-xl border border-[#00CFFF]/40 px-4 py-2 text-sm text-[#00CFFF] disabled:opacity-60"
+                  >
+                    {tenantSyncing ? 'جاري المحاولة...' : 'إعادة المحاولة'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard')}
+                    className="text-xs text-white/45 hover:text-white/70 underline-offset-2 hover:underline"
+                  >
+                    تخطي الآن
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-white/75 text-sm">اختر من أين تبدأ:</p>
+                  <div className="w-full flex flex-col gap-3">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/inventory')}
+                      className="w-full rounded-2xl border border-[#00CFFF]/40 bg-[#071C3B] hover:bg-[#00CFFF]/10 px-4 py-4 text-right transition-colors"
+                    >
+                      <span className="text-2xl me-2">📦</span>
+                      <span className="font-extrabold text-[#00CFFF]">أضف أول منتج</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/invoices')}
+                      className="w-full rounded-2xl border border-[#00CFFF]/40 bg-[#071C3B] hover:bg-[#00CFFF]/10 px-4 py-4 text-right transition-colors"
+                    >
+                      <span className="text-2xl me-2">📄</span>
+                      <span className="font-extrabold text-[#00CFFF]">أنشئ أول فاتورة</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/pos')}
+                      className="w-full rounded-2xl border border-[#00CFFF]/40 bg-[#071C3B] hover:bg-[#00CFFF]/10 px-4 py-4 text-right transition-colors"
+                    >
+                      <span className="text-2xl me-2">🛒</span>
+                      <span className="font-extrabold text-[#00CFFF]">ابدأ من نقطة البيع</span>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard')}
+                    className="text-xs text-white/45 hover:text-white/70 underline-offset-2 hover:underline mt-2"
+                  >
+                    تخطي — اذهب للوحة التحكم
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

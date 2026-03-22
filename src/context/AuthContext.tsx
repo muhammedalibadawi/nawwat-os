@@ -135,16 +135,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshUserSession = useCallback(async () => {
-    const { data, error } = await supabase.auth.refreshSession();
+    const { error } = await supabase.auth.refreshSession();
     if (error) {
-      console.warn('[AuthContext] refreshSession:', error.message);
-      return;
+      console.error('[AuthContext] refreshSession failed:', error.message);
+      throw error;
     }
-    if (data.session) {
-      setSession(data.session);
-      await hydrateUser(data.session);
-    }
-  }, [hydrateUser]);
+    // لا setSession هنا — لا hydrateUser هنا — onAuthStateChange يحدّث
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -171,17 +168,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!mounted) return;
       setSession(nextSession);
-      try {
-        await hydrateUser(nextSession);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error('[AuthContext] onAuthStateChange error:', msg);
-      } finally {
-        if (mounted) setLoading(false);
-      }
+      setTimeout(() => {
+        if (!mounted) return;
+        void (async () => {
+          try {
+            await hydrateUser(nextSession);
+          } catch (err) {
+            console.error('[AuthContext] onAuthStateChange error:', err);
+          } finally {
+            if (mounted) setLoading(false);
+          }
+        })();
+      }, 0);
     });
 
     return () => {
