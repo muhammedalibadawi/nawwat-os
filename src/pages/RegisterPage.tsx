@@ -262,8 +262,16 @@ export default function RegisterPage() {
       }
 
       localStorage.setItem('nawwat_tenant_id', tenantId);
-      await refreshUserSession();
+
+      try {
+        await refreshUserSession();
+      } catch (refreshErr) {
+        console.warn('refresh failed:', refreshErr);
+        // مش مشكلة — نكمل
+      }
+
       setStep(4);
+      setLoading(false);
     } catch (err: unknown) {
       console.error('Caught error:', err);
       const msg = err instanceof Error ? err.message : String(err);
