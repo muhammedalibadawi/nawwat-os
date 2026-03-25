@@ -34,6 +34,7 @@ import { StatusBanner } from '@/components/ui/StatusBanner';
 import ArchiveWorkObjectDialog from '@/components/workos/ArchiveWorkObjectDialog';
 import WorkThreadList from '@/components/workos/WorkThreadList';
 import WorkThreadPanel from '@/components/workos/WorkThreadPanel';
+import { classifyRuntimeEmptyState, classifyRuntimeError, getRuntimeClassificationMessage } from '@/utils/runtimeClassification';
 
 const WorkChannelsScreen: React.FC = () => {
   const { user } = useAuth();
@@ -93,7 +94,8 @@ const WorkChannelsScreen: React.FC = () => {
         return nextData.channels[0]?.id ?? '';
       });
     } catch (loadError) {
-      setError(normalizeWorkOsError(loadError, 'تعذر تحميل القنوات.'));
+      const fallback = normalizeWorkOsError(loadError, 'تعذر تحميل القنوات.');
+      setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
     } finally {
       setLoading(false);
     }
@@ -353,7 +355,7 @@ const WorkChannelsScreen: React.FC = () => {
               description={
                 teamSpacesCount === 0
                   ? 'السبب: لا توجد مساحات فرق مهيأة في tenant الحالي. لإنشاء قناة تحتاج على الأقل مساحة فريق واحدة. اذهب إلى مساحات الفرق ثم أنشئ مساحة وأعد المحاولة.'
-                  : hasFilters
+                  : classifyRuntimeEmptyState({ hasFilters }) === 'filtered_out'
                     ? 'السبب: لا توجد نتائج مطابقة للفلاتر الحالية. جرّب إزالة بعض الفلاتر أو البحث باسم قناة مختلف.'
                     : 'السبب: لا توجد قنوات داخلية مسجلة بعد. عند إضافة قناة ضمن مساحة أو مشروع ستظهر هنا مباشرة.'
               }

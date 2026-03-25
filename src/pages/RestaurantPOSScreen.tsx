@@ -27,6 +27,7 @@ import {
     toDraftLine,
     cancelRestaurantOrder,
 } from '@/services/restaurantService';
+import { classifyRuntimeError, getRuntimeClassificationMessage } from '@/utils/runtimeClassification';
 
 type MobileTab = 'tables' | 'menu' | 'order';
 
@@ -143,7 +144,8 @@ export default function RestaurantPOSScreen() {
                 setBranchId(resolvedBranchId);
             } catch (loadError) {
                 if (!cancelled) {
-                    setError(safeRestaurantErrorMessage(loadError, 'تعذر تحميل بيانات قطاع المطاعم'));
+                    const fallback = safeRestaurantErrorMessage(loadError, 'تعذر تحميل بيانات قطاع المطاعم');
+                    setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
                 }
             } finally {
                 if (!cancelled) {

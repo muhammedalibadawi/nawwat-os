@@ -9,6 +9,7 @@ import WorkPageHeader from '@/components/workos/WorkPageHeader';
 import WorkTaskList from '@/components/workos/WorkTaskList';
 import WorkEmptyState from '@/components/workos/WorkEmptyState';
 import { StatusBanner } from '@/components/ui/StatusBanner';
+import { classifyRuntimeEmptyState, classifyRuntimeError, getRuntimeClassificationMessage } from '@/utils/runtimeClassification';
 
 const WorkHomeScreen: React.FC = () => {
   const { user } = useAuth();
@@ -26,7 +27,8 @@ const WorkHomeScreen: React.FC = () => {
         const nextData = await loadWorkHome(user.tenant_id, user.id);
         setData(nextData);
       } catch (loadError) {
-        setError(normalizeWorkOsError(loadError, 'تعذر تحميل الصفحة الرئيسية لقطاع WorkOS.'));
+        const fallback = normalizeWorkOsError(loadError, 'تعذر تحميل الصفحة الرئيسية لقطاع WorkOS.');
+        setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
       } finally {
         setLoading(false);
       }
@@ -177,7 +179,11 @@ const WorkHomeScreen: React.FC = () => {
       ) : (
         <WorkEmptyState
           title="لم يتم تحميل بيانات WorkOS بعد"
-          description="إذا كانت مساحة العمل فارغة تمامًا فسيظهر هذا العرض حتى تبدأ بإضافة مشاريع أو قنوات أو مستندات."
+          description={
+            classifyRuntimeEmptyState({ hasFilters: false }) === 'no_data'
+              ? 'السبب: لا توجد بيانات تشغيلية في WorkOS ضمن مساحة العمل الحالية بعد.'
+              : 'إذا كانت مساحة العمل فارغة تمامًا فسيظهر هذا العرض حتى تبدأ بإضافة مشاريع أو قنوات أو مستندات.'
+          }
         />
       )}
     </div>

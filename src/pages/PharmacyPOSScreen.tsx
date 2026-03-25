@@ -32,6 +32,7 @@ import DispenseCartPanel from '@/components/pharmacy/DispenseCartPanel';
 import BatchSelectorModal from '@/components/pharmacy/BatchSelectorModal';
 import PrescriptionEditorModal from '@/components/pharmacy/PrescriptionEditorModal';
 import { StatusBanner } from '@/components/ui/StatusBanner';
+import { classifyRuntimeError, getRuntimeClassificationMessage } from '@/utils/runtimeClassification';
 
 const tabButton = (active: boolean) =>
   `rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
@@ -103,7 +104,8 @@ const PharmacyPOSScreen: React.FC = () => {
         const pharmacyCatalog = await loadPharmacyCatalog(user.tenant_id);
         setCatalog(pharmacyCatalog);
       } catch (loadError) {
-        setError(normalizePharmacyError(loadError, 'تعذر تحميل شاشة الصيدلية.'));
+        const fallback = normalizePharmacyError(loadError, 'تعذر تحميل شاشة الصيدلية.');
+        setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
       } finally {
         setSnapshotLoading(false);
       }
@@ -142,7 +144,8 @@ const PharmacyPOSScreen: React.FC = () => {
       try {
         await reloadBranchData();
       } catch (refreshError) {
-        setError(normalizePharmacyError(refreshError, 'تعذر تحديث بيانات الفرع الحالي.'));
+        const fallback = normalizePharmacyError(refreshError, 'تعذر تحديث بيانات الفرع الحالي.');
+        setError(getRuntimeClassificationMessage(classifyRuntimeError(refreshError), fallback));
       }
     })();
   }, [selectedBranchId, user?.tenant_id]);

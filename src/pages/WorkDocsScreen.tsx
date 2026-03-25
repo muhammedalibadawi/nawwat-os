@@ -22,6 +22,7 @@ import { StatusBanner } from '@/components/ui/StatusBanner';
 import ArchiveWorkObjectDialog from '@/components/workos/ArchiveWorkObjectDialog';
 import WorkDocBlockViewer from '@/components/workos/WorkDocBlockViewer';
 import WorkSavedViewsPanel from '@/components/workos/WorkSavedViewsPanel';
+import { classifyRuntimeEmptyState, classifyRuntimeError, getRuntimeClassificationMessage } from '@/utils/runtimeClassification';
 
 const WorkDocsScreen: React.FC = () => {
   const { user } = useAuth();
@@ -73,7 +74,8 @@ const WorkDocsScreen: React.FC = () => {
         return nextData.docs[0]?.id ?? '';
       });
     } catch (loadError) {
-      setError(normalizeWorkOsError(loadError, 'تعذر تحميل المستندات.'));
+      const fallback = normalizeWorkOsError(loadError, 'تعذر تحميل المستندات.');
+      setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
     } finally {
       setLoading(false);
     }
@@ -332,7 +334,7 @@ const WorkDocsScreen: React.FC = () => {
               description={
                 teamSpacesCount === 0
                   ? 'السبب: لا توجد مساحات فرق مهيأة في tenant الحالي. لإنشاء مستند تحتاج على الأقل مساحة فريق واحدة. اذهب إلى مساحات الفرق ثم أنشئ مساحة وأعد المحاولة.'
-                  : hasFilters
+                  : classifyRuntimeEmptyState({ hasFilters }) === 'filtered_out'
                     ? 'السبب: لا توجد نتائج مطابقة للفلاتر الحالية (المساحة/المشروع/البحث). غيّر كلمات البحث أو الفلاتر لعرض نتائج أوسع.'
                     : 'السبب: لا توجد مستندات منشأة بعد في مساحة العمل الحالية. هذا طبيعي في بيئة جديدة قبل إضافة بيانات تجريبية.'
               }

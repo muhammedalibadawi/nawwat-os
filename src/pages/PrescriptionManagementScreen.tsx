@@ -16,6 +16,7 @@ import {
 } from '@/services/pharmacyService';
 import type { PharmacyInsuranceClaim, PharmacyPrescriptionDraftInput, PharmacyPrescriptionSummary } from '@/types/pharmacy';
 import { formatCurrency, formatDate, normalizePharmacyError } from '@/utils/pharmacy';
+import { classifyRuntimeEmptyState, classifyRuntimeError, getRuntimeClassificationMessage } from '@/utils/runtimeClassification';
 
 const tabClass = (active: boolean) =>
   `rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
@@ -73,7 +74,8 @@ const PrescriptionManagementScreen: React.FC = () => {
         setQueue(queueRows);
         setFilters((current) => ({ ...current, branch_id: user.branch_id || snapshot.branches[0]?.id || '' }));
       } catch (loadError) {
-        setError(normalizePharmacyError(loadError, 'تعذر تحميل إدارة الوصفات.'));
+        const fallback = normalizePharmacyError(loadError, 'تعذر تحميل إدارة الوصفات.');
+        setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
       } finally {
         setLoading(false);
       }
@@ -145,7 +147,9 @@ const PrescriptionManagementScreen: React.FC = () => {
 
       {!loading && branches.length === 0 ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
-          السبب: لا يوجد فرع نشط — لن تُحمَّل الوصفات أو المطالبات بشكل صحيح حتى يُضاف فرع للمستأجر.
+          {classifyRuntimeEmptyState({ branchMismatch: true }) === 'branch_mismatch'
+            ? 'السبب: لا يوجد فرع نشط أو لا يطابق فرع الجلسة الحالي، لذلك لن تُحمَّل الوصفات أو المطالبات بشكل صحيح.'
+            : 'السبب: لا يوجد فرع نشط — لن تُحمَّل الوصفات أو المطالبات بشكل صحيح حتى يُضاف فرع للمستأجر.'}
         </div>
       ) : null}
 

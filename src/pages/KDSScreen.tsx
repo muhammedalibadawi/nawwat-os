@@ -11,6 +11,7 @@ import {
     updateKdsTicketStatus,
 } from '@/services/restaurantService';
 import { StatusBanner } from '@/components/ui/StatusBanner';
+import { classifyRuntimeError, getRuntimeClassificationMessage } from '@/utils/runtimeClassification';
 
 const stations: Array<RestaurantStation | 'all'> = ['all', 'main', 'cold', 'bar', 'grill', 'dessert'];
 
@@ -89,7 +90,10 @@ export default function KDSScreen() {
                 branchIdRef.current = nextBranchId;
             })
             .catch((loadError) => {
-                if (!cancelled) setError(safeRestaurantErrorMessage(loadError, 'تعذر تحميل الفروع لشاشة المطبخ'));
+                if (!cancelled) {
+                    const fallback = safeRestaurantErrorMessage(loadError, 'تعذر تحميل الفروع لشاشة المطبخ');
+                    setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
+                }
             });
 
         return () => {
@@ -108,7 +112,10 @@ export default function KDSScreen() {
                 if (!cancelled) setTickets(nextTickets);
             })
             .catch((loadError) => {
-                if (!cancelled) setError(safeRestaurantErrorMessage(loadError, 'تعذر تحميل تذاكر المطبخ'));
+                if (!cancelled) {
+                    const fallback = safeRestaurantErrorMessage(loadError, 'تعذر تحميل تذاكر المطبخ');
+                    setError(getRuntimeClassificationMessage(classifyRuntimeError(loadError), fallback));
+                }
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
