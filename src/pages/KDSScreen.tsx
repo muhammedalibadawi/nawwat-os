@@ -10,6 +10,7 @@ import {
     subscribeToKdsTickets,
     updateKdsTicketStatus,
 } from '@/services/restaurantService';
+import { StatusBanner } from '@/components/ui/StatusBanner';
 
 const stations: Array<RestaurantStation | 'all'> = ['all', 'main', 'cold', 'bar', 'grill', 'dessert'];
 
@@ -231,7 +232,7 @@ export default function KDSScreen() {
                             </select>
                         ) : (
                             <span className="rounded-[18px] border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm font-bold text-amber-100">
-                                لا يوجد فرع نشط — أضف فرعًا أولاً
+                                السبب: لا يوجد فرع نشط لعرض تذاكر المطبخ — أضف فرعًا أولاً
                             </span>
                         )}
                         <div className="rounded-[18px] border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/75">
@@ -254,12 +255,12 @@ export default function KDSScreen() {
                 {(error || realtimeIssue || success) && (
                     <div className="mt-4 space-y-2">
                         {success ? (
-                            <div className="rounded-[18px] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm font-bold text-emerald-100">
+                            <StatusBanner variant="success" tone="dark">
                                 {success}
-                            </div>
+                            </StatusBanner>
                         ) : null}
-                        {error && <div className="rounded-[18px] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm font-bold text-rose-100">{error}</div>}
-                        {realtimeIssue && <div className="rounded-[18px] border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-bold text-amber-100">{realtimeIssue}</div>}
+                        {error ? <StatusBanner variant="error" tone="dark">{error}</StatusBanner> : null}
+                        {realtimeIssue ? <StatusBanner variant="warning" tone="dark">{realtimeIssue}</StatusBanner> : null}
                     </div>
                 )}
             </div>
@@ -274,7 +275,7 @@ export default function KDSScreen() {
                         <Bell className="mb-4 h-14 w-14 text-cyan" />
                         <h2 className="text-3xl font-black text-white">المطبخ جاهز</h2>
                         <p className="mt-2 max-w-lg text-sm">
-                            لا توجد تذاكر مطبخ لهذا الفرع والمحطة المختارة حاليًا — وهذا طبيعي قبل أول طلب يُرسَل من نقطة البيع. تأكد أن الفرع هنا يطابق فرع نقطة المطعم، ثم أرسل طلبًا للمطبخ من الطاولة. ستظهر التذاكر لحظيًا مع تنبيه عند وصول طلب جديد.
+                            السبب: لا توجد تذاكر مطبخ لهذا الفرع والمحطة المختارة حاليًا — وهذا طبيعي قبل أول طلب يُرسَل من نقطة البيع. تأكد أن الفرع هنا يطابق فرع نقطة المطعم، ثم أرسل طلبًا للمطبخ من الطاولة. ستظهر التذاكر لحظيًا مع تنبيه عند وصول طلب جديد.
                         </p>
                         {station !== 'all' ? (
                             <p className="mt-4 max-w-lg text-xs text-white/45">

@@ -526,7 +526,7 @@ export default function MenuManagementScreen() {
                             {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name_ar || branch.name}</option>)}
                         </select>
                     ) : (
-                        <span className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">لا يوجد فرع نشط</span>
+                        <span className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">السبب: لا يوجد فرع نشط</span>
                     )}
                     <button type="button" onClick={() => {
                         setMenuForm({ ...emptyMenuForm, branch_id: branchId, sort_order: menuItems.length });
