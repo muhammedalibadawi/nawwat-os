@@ -5,6 +5,8 @@
  */
 import React, { Component, ErrorInfo } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { normalizePharmacyError } from '@/utils/pharmacy';
+import { normalizeWorkOsError } from '@/utils/workos';
 
 interface State {
     hasError: boolean;
@@ -19,6 +21,50 @@ interface Props {
 
 export class ErrorBoundary extends Component<Props, State> {
     state: State = { hasError: false, error: null };
+
+    private extractErrorStrings(error: unknown): string[] {
+        const parts: string[] = [];
+        const add = (v: unknown) => {
+            if (typeof v === 'string' && v.trim()) parts.push(v.trim());
+        };
+
+        const walk = (err: unknown, depth: number): void => {
+            if (err == null || depth > 5) return;
+            if (typeof err === 'string') {
+                add(err);
+                return;
+            }
+            if (err instanceof Error) {
+                add(err.message);
+                walk((err as Error & { cause?: unknown }).cause, depth + 1);
+                return;
+            }
+            if (typeof err === 'object') {
+                const row = err as Record<string, unknown>;
+                add(row.message);
+                add(row.details);
+                add(row.hint);
+                add(row.code);
+                if (row.error != null) walk(row.error, depth + 1);
+            }
+        };
+
+        walk(error, 0);
+        return parts;
+    }
+
+    private normalizeForUser(error: unknown, fallback: string): string {
+        const strings = this.extractErrorStrings(error);
+        const raw = strings.join(' — ');
+        const lower = raw.toLowerCase();
+
+        // Route WorkOS errors to its own sanitizer to avoid leaking raw DB/PostgREST text.
+        if (/\bwork_|workos|work_link_objects|work_archive_object|work_mark_notification_read/i.test(raw)) {
+            return normalizeWorkOsError(error, fallback);
+        }
+
+        return normalizePharmacyError(error, fallback);
+    }
 
     static getDerivedStateFromError(error: Error): State {
         return { hasError: true, error };
@@ -47,7 +93,10 @@ export class ErrorBoundary extends Component<Props, State> {
                             حدث خطأ غير متوقع
                         </h2>
                         <p className="text-content-3 text-sm max-w-md leading-relaxed">
-                            {this.state.error?.message ?? 'An unexpected error occurred in this module.'}
+                            {this.normalizeForUser(
+                                this.state.error ?? new Error(''),
+                                'حدث خطأ غير متوقع في هذه الوحدة. حدّث الصفحة أو جرّب لاحقًا.'
+                            )}
                         </p>
                     </div>
                     <button

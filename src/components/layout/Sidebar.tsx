@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useAppContext } from '../../store/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { ROLE_PERMISSIONS } from '../../config/permissions';
-import { LayoutDashboard, BarChart2, MonitorSmartphone, Users, Settings, MessageSquare, FileText, Network, Calculator, Truck, Briefcase, LogOut, Lock, Package, ShoppingCart, DollarSign, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, BarChart2, MonitorSmartphone, Users, Settings, MessageSquare, FileText, Network, Calculator, Truck, Briefcase, LogOut, Lock, Package, ShoppingCart, DollarSign, ExternalLink, ChefHat, ClipboardList, Pill, Clipboard, Boxes, PackagePlus, HeartPulse, LineChart, Layers3, FolderKanban, ScrollText, BellRing, Search } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
     const { sidebarMini } = useAppContext();
@@ -61,8 +61,64 @@ export const Sidebar: React.FC = () => {
                     العمليات
                 </div>
 
-                <NavItem to="/pos" title="نقطة البيع" icon={MonitorSmartphone} badge={!sidebarMini ? <span className="px-1.5 py-0.5 rounded-full text-[0.62rem] font-extrabold shrink-0 bg-cyan text-midnight">مباشر</span> : undefined}>
-                    نقطة البيع
+                <NavItem to="/pos" title="POS العام" icon={MonitorSmartphone} badge={!sidebarMini ? <span className="px-1.5 py-0.5 rounded-full text-[0.62rem] font-extrabold shrink-0 bg-cyan text-midnight">ERP</span> : undefined}>
+                    POS العام
+                </NavItem>
+                <NavItem to="/restaurant-pos" title="POS المطاعم" icon={ChefHat} badge={!sidebarMini ? <span className="px-1.5 py-0.5 rounded-full text-[0.62rem] font-extrabold shrink-0 bg-cyan text-midnight">F&B</span> : undefined}>
+                    POS المطاعم
+                </NavItem>
+                <NavItem to="/kds" title="شاشة المطبخ" icon={ClipboardList}>
+                    شاشة المطبخ ↗
+                </NavItem>
+                <NavItem to="/menu-management" title="إدارة القائمة" icon={FileText}>
+                    إدارة القائمة
+                </NavItem>
+
+                <div className={`px-3 py-5 pb-1.5 text-[0.6rem] font-extrabold tracking-widest uppercase text-white/20 whitespace-nowrap overflow-hidden transition-opacity duration-400 shrink-0 mt-2 ${sidebarMini ? 'opacity-0 pointer-events-none' : ''}`}>
+                    الصيدلية
+                </div>
+                <NavItem to="/pharmacy-pos" title="صيدلية — نقطة البيع" icon={Pill} badge={!sidebarMini ? <span className="px-1.5 py-0.5 rounded-full text-[0.62rem] font-extrabold shrink-0 bg-emerald-400/90 text-midnight">Rx</span> : undefined}>
+                    صيدلية POS
+                </NavItem>
+                <NavItem to="/prescriptions" title="الوصفات الطبية" icon={Clipboard}>
+                    الوصفات
+                </NavItem>
+                <NavItem to="/pharmacy-inventory" title="مخزون الصيدلية" icon={Boxes}>
+                    مخزون الصيدلية
+                </NavItem>
+                <NavItem to="/pharmacy-receiving" title="استلام صيدلية" icon={PackagePlus}>
+                    استلام صيدلية
+                </NavItem>
+                <NavItem to="/patient-med-history" title="سجل أدوية المريض" icon={HeartPulse}>
+                    سجل أدوية المريض
+                </NavItem>
+                <NavItem to="/pharmacy-reports" title="تقارير الصيدلية" icon={LineChart}>
+                    تقارير الصيدلية
+                </NavItem>
+
+                <div className={`px-3 py-5 pb-1.5 text-[0.6rem] font-extrabold tracking-widest uppercase text-white/20 whitespace-nowrap overflow-hidden transition-opacity duration-400 shrink-0 mt-2 ${sidebarMini ? 'opacity-0 pointer-events-none' : ''}`}>
+                    Work OS
+                </div>
+                <NavItem to="/work" title="Work OS — الرئيسية" icon={Layers3}>
+                    الرئيسية
+                </NavItem>
+                <NavItem to="/work/team-spaces" title="مساحات الفرق" icon={Users}>
+                    مساحات الفرق
+                </NavItem>
+                <NavItem to="/work/projects" title="المشاريع" icon={FolderKanban}>
+                    المشاريع
+                </NavItem>
+                <NavItem to="/work/docs" title="المستندات" icon={ScrollText}>
+                    المستندات
+                </NavItem>
+                <NavItem to="/work/channels" title="القنوات" icon={MessageSquare}>
+                    القنوات
+                </NavItem>
+                <NavItem to="/work/inbox" title="البريد الداخلي" icon={BellRing}>
+                    البريد الداخلي
+                </NavItem>
+                <NavItem to="/work/search" title="البحث" icon={Search}>
+                    البحث
                 </NavItem>
                 <NavItem to="/inventory" title="المخزون" icon={Package}>
                     المخزون
@@ -103,9 +159,11 @@ export const Sidebar: React.FC = () => {
                     التقارير
                 </NavItem>
 
-                <NavItem to="/admin-portal" title="بوابة الإدارة" icon={Settings}>
-                    بوابة الإدارة
-                </NavItem>
+                {role === 'master_admin' && (
+                    <NavItem to="/admin-portal" title="بوابة الإدارة" icon={Settings}>
+                        بوابة الإدارة
+                    </NavItem>
+                )}
 
             </div>
 

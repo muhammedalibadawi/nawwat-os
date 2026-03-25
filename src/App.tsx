@@ -15,7 +15,9 @@ import { RoleBasedRoute } from './components/RoleBasedRoute';
 
 const DashboardScreen = React.lazy(() => import('./pages/DashboardScreen'));
 const POSScreen = React.lazy(() => import('./pages/POSScreen'));
+const RestaurantPOSScreen = React.lazy(() => import('./pages/RestaurantPOSScreen'));
 const KDSScreen = React.lazy(() => import('./pages/KDSScreen'));
+const MenuManagementScreen = React.lazy(() => import('./pages/MenuManagementScreen'));
 const TableManagementScreen = React.lazy(() => import('./pages/TableManagementScreen'));
 const CRMScreen = React.lazy(() => import('./pages/CRMScreen'));
 const RealEstateScreen = React.lazy(() => import('./pages/RealEstateScreen'));
@@ -42,6 +44,20 @@ const CustomerPortalPage = React.lazy(() => import('./pages/CustomerPortalPage')
 const EmployeePortalPage = React.lazy(() => import('./pages/EmployeePortalPage'));
 const SupplierPortalPage = React.lazy(() => import('./pages/SupplierPortalPage'));
 const ChequesScreen = React.lazy(() => import('./pages/ChequesScreen'));
+const PharmacyPOSScreen = React.lazy(() => import('./pages/PharmacyPOSScreen'));
+const PrescriptionManagementScreen = React.lazy(() => import('./pages/PrescriptionManagementScreen'));
+const PharmacyInventoryScreen = React.lazy(() => import('./pages/PharmacyInventoryScreen'));
+const PharmacyReceivingScreen = React.lazy(() => import('./pages/PharmacyReceivingScreen'));
+const PatientMedicationHistoryScreen = React.lazy(() => import('./pages/PatientMedicationHistoryScreen'));
+const PharmacyReportsScreen = React.lazy(() => import('./pages/PharmacyReportsScreen'));
+const WorkHomeScreen = React.lazy(() => import('./pages/WorkHomeScreen'));
+const WorkTeamSpacesScreen = React.lazy(() => import('./pages/WorkTeamSpacesScreen'));
+const WorkProjectsScreen = React.lazy(() => import('./pages/WorkProjectsScreen'));
+const WorkProjectDetailScreen = React.lazy(() => import('./pages/WorkProjectDetailScreen'));
+const WorkDocsScreen = React.lazy(() => import('./pages/WorkDocsScreen'));
+const WorkChannelsScreen = React.lazy(() => import('./pages/WorkChannelsScreen'));
+const WorkInboxScreen = React.lazy(() => import('./pages/WorkInboxScreen'));
+const WorkSearchScreen = React.lazy(() => import('./pages/WorkSearchScreen'));
 
 const GlobalLoadingSpinner = () => (
   <div className="w-full h-full min-h-[50vh] flex flex-col items-center justify-center gap-4">
@@ -88,6 +104,24 @@ function ChequesRoute() {
   );
 }
 
+const WORK_OS_ALLOWED_ROLES = [
+  'owner',
+  'master_admin',
+  'branch_manager',
+  'accountant',
+  'hr',
+  'procurement',
+  'sales',
+  'doctor',
+  'pharmacist',
+  'receptionist',
+  'teacher',
+  'viewer',
+  'cashier',
+  'kitchen',
+  'warehouse',
+] as const;
+
 export default function App() {
   return (
     <AuthProvider>
@@ -117,9 +151,25 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route element={<Suspense fallback={<GlobalLoadingSpinner />}><ErrorBoundaryWrapper /></Suspense>}>
               <Route path="dashboard" element={<DashboardScreen />} />
-              <Route path="admin-portal" element={<RoleBasedRoute><AdminPortalScreen /></RoleBasedRoute>} />
+              <Route path="admin-portal" element={<RoleBasedRoute allowedRoles={['master_admin']}><AdminPortalScreen /></RoleBasedRoute>} />
               <Route path="pos" element={<RoleBasedRoute><POSScreen /></RoleBasedRoute>} />
-              <Route path="kds" element={<RoleBasedRoute><KDSScreen /></RoleBasedRoute>} />
+              <Route path="restaurant-pos" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'cashier']}><RestaurantPOSScreen /></RoleBasedRoute>} />
+              <Route path="kds" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'kitchen']}><KDSScreen /></RoleBasedRoute>} />
+              <Route path="menu-management" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager']}><MenuManagementScreen /></RoleBasedRoute>} />
+              <Route path="pharmacy-pos" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'pharmacist', 'cashier', 'doctor', 'receptionist']}><PharmacyPOSScreen /></RoleBasedRoute>} />
+              <Route path="prescriptions" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'pharmacist', 'doctor', 'receptionist']}><PrescriptionManagementScreen /></RoleBasedRoute>} />
+              <Route path="pharmacy-inventory" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'pharmacist', 'warehouse', 'procurement']}><PharmacyInventoryScreen /></RoleBasedRoute>} />
+              <Route path="pharmacy-receiving" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'pharmacist', 'warehouse', 'procurement']}><PharmacyReceivingScreen /></RoleBasedRoute>} />
+              <Route path="patient-med-history" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'pharmacist', 'doctor']}><PatientMedicationHistoryScreen /></RoleBasedRoute>} />
+              <Route path="pharmacy-reports" element={<RoleBasedRoute allowedRoles={['owner', 'master_admin', 'branch_manager', 'pharmacist', 'accountant']}><PharmacyReportsScreen /></RoleBasedRoute>} />
+              <Route path="work" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkHomeScreen /></RoleBasedRoute>} />
+              <Route path="work/team-spaces" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkTeamSpacesScreen /></RoleBasedRoute>} />
+              <Route path="work/projects" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkProjectsScreen /></RoleBasedRoute>} />
+              <Route path="work/projects/:id" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkProjectDetailScreen /></RoleBasedRoute>} />
+              <Route path="work/docs" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkDocsScreen /></RoleBasedRoute>} />
+              <Route path="work/channels" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkChannelsScreen /></RoleBasedRoute>} />
+              <Route path="work/inbox" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkInboxScreen /></RoleBasedRoute>} />
+              <Route path="work/search" element={<RoleBasedRoute allowedRoles={[...WORK_OS_ALLOWED_ROLES]}><WorkSearchScreen /></RoleBasedRoute>} />
               <Route path="tables" element={<RoleBasedRoute><TableManagementScreen /></RoleBasedRoute>} />
               <Route path="crm" element={<RoleBasedRoute><CRMScreen /></RoleBasedRoute>} />
               <Route path="real-estate" element={<RoleBasedRoute><RealEstateScreen /></RoleBasedRoute>} />

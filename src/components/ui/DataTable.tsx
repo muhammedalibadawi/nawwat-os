@@ -11,9 +11,11 @@ interface DataTableProps<T> {
     columns: DataTableColumn<T>[];
     onRowClick?: (row: T) => void;
     className?: string;
+    /** نص صف الفراغ (بدل الرسالة الافتراضية الإنجليزية) */
+    emptyMessage?: string;
 }
 
-export function DataTable<T>({ data, columns, onRowClick, className = '' }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns, onRowClick, className = '', emptyMessage }: DataTableProps<T>) {
     return (
         <div className={`w-full overflow-x-auto rounded-[12px] border border-border bg-surface-card shadow-sm ${className}`}>
       <table className="w-full text-start border-collapse font-sans min-w-[600px]">
@@ -33,7 +35,7 @@ export function DataTable<T>({ data, columns, onRowClick, className = '' }: Data
           {data.length === 0 ? (
             <tr>
               <td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-content-4">
-                No records found.
+                {emptyMessage ?? 'No records found.'}
               </td>
             </tr>
           ) : (

@@ -1,194 +1,297 @@
-import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, CheckSquare, Zap, UtensilsCrossed, AlertTriangle } from 'lucide-react';
-import { useAppContext } from '../store/AppContext';
-import { useKdsStore, KdsOrder } from '../store/KdsStore';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Bell, ChefHat, Expand, Loader2, RefreshCw } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { KDSTicketCard } from '@/components/restaurant/KDSTicketCard';
+import type { RestaurantBranch, RestaurantKdsTicket, RestaurantStation } from '@/services/restaurantService';
+import {
+    loadKdsTickets,
+    loadRestaurantBranches,
+    safeRestaurantErrorMessage,
+    subscribeToKdsTickets,
+    updateKdsTicketStatus,
+} from '@/services/restaurantService';
 
-// Gamification mock store (Simplified version of what HR might use)
-const useGamificationMock = () => {
-  const [points, setPoints] = useState(1250);
-  const addPoints = (pts: number) => setPoints(p => p + pts);
-  return { points, addPoints };
-};
+const stations: Array<RestaurantStation | 'all'> = ['all', 'main', 'cold', 'bar', 'grill', 'dessert'];
 
-// Individual Order Card Component
-const OrderCard: React.FC<{ order: KdsOrder; onPrepared: (id: string, time: number, target: number) => void }> = ({ order, onPrepared }) => {
-  const [elapsed, setElapsed] = useState(0);
+function formatLiveClock() {
+    return new Intl.DateTimeFormat('ar-AE', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+    }).format(new Date());
+}
 
-  useEffect(() => {
-    const start = new Date(order.timestamp).getTime();
-    const interval = setInterval(() => {
-      setElapsed(Date.now() - start);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [order.timestamp]);
+function shouldHideTicket(ticket: RestaurantKdsTicket) {
+    if (ticket.status === 'dismissed') return true;
+    if (ticket.status !== 'ready') return false;
+    if (!ticket.ready_at) return false;
+    return Date.now() - new Date(ticket.ready_at).getTime() > 15000;
+}
 
-  const isWarning = elapsed > order.targetTimeMs * 0.75; // 75% of target time
-  const isDanger = elapsed > order.targetTimeMs;
+async function playKdsPing() {
+    try {
+        const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextCtor) return;
+        const audioContext = new AudioContextCtor();
+        const oscillator = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        oscillator.connect(gain);
+        gain.connect(audioContext.destination);
+        oscillator.type = 'triangle';
+        oscillator.frequency.value = 880;
+        gain.gain.value = 0.05;
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.15);
+        oscillator.onended = () => {
+            void audioContext.close();
+        };
+    } catch {
+        // Ignore audio failures so the KDS remains usable on locked-down devices.
+    }
+}
 
-  let timerColor = 'text-cyan';
-  let timerBg = 'bg-cyan-dim';
-  if (isDanger) {
-    timerColor = 'text-danger';
-    timerBg = 'bg-danger/10';
-  } else if (isWarning) {
-    timerColor = 'text-warning';
-    timerBg = 'bg-warning-dim';
-  }
+export default function KDSScreen() {
+    const { user } = useAuth();
+    const [branches, setBranches] = useState<RestaurantBranch[]>([]);
+    const [branchId, setBranchId] = useState('');
+    const [station, setStation] = useState<RestaurantStation | 'all'>('all');
+    const [tickets, setTickets] = useState<RestaurantKdsTicket[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [mutatingTicketId, setMutatingTicketId] = useState('');
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [clock, setClock] = useState(formatLiveClock());
+    const [realtimeIssue, setRealtimeIssue] = useState('');
+    const [reloadTick, setReloadTick] = useState(0);
+    const branchIdRef = useRef('');
 
-  // Format mm:ss
-  const mins = Math.floor(elapsed / 60000);
-  const secs = Math.floor((elapsed % 60000) / 1000);
-  const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    useEffect(() => {
+        if (!success) return;
+        const timer = window.setTimeout(() => setSuccess(''), 5000);
+        return () => window.clearTimeout(timer);
+    }, [success]);
 
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.3 } }}
-      className="bg-surface-card rounded-[20px] shadow-sm border border-border flex flex-col overflow-hidden relative group"
-    >
-      {/* Top Header */}
-      <div className="bg-midnight p-4 flex items-center justify-between text-white shrink-0">
-        <div>
-          <h3 className="font-nunito font-black text-lg">{order.id}</h3>
-          <p className="text-xs text-content-4 font-bold flex items-center gap-1.5 mt-0.5">
-            <UtensilsCrossed size={12} /> {order.tableInfo}
-          </p>
-        </div>
-        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-black ${timerBg} ${timerColor}`}>
-          {isDanger ? <AlertTriangle size={15} /> : <Clock size={15} />}
-          {timeStr}
-        </div>
-      </div>
+    useEffect(() => {
+        const timer = window.setInterval(() => setClock(formatLiveClock()), 1000);
+        return () => window.clearInterval(timer);
+    }, []);
 
-      {/* Items List */}
-      <div className="flex-1 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-surface-bg-2">
-        <ul className="space-y-4">
-          {order.items.map((item, idx) => (
-            <li key={idx} className="flex gap-3">
-              <div className="w-7 h-7 bg-surface-bg-2 rounded-lg flex items-center justify-center font-bold text-midnight text-sm shrink-0">
-                {item.quantity}x
-              </div>
-              <div>
-                <div className="font-bold text-content text-[0.95rem]">{item.name}</div>
-                {item.notes && (
-                  <div className="text-[0.75rem] text-danger font-bold mt-1 bg-danger/5 px-2 py-1 rounded-md inline-block">
-                    Note: {item.notes}
-                  </div>
+    useEffect(() => {
+        if (!user?.tenant_id) return;
+        let cancelled = false;
+        void loadRestaurantBranches(user.tenant_id)
+            .then((nextBranches) => {
+                if (cancelled) return;
+                setBranches(nextBranches);
+                const nextBranchId = user.branch_id || nextBranches[0]?.id || '';
+                setBranchId(nextBranchId);
+                branchIdRef.current = nextBranchId;
+            })
+            .catch((loadError) => {
+                if (!cancelled) setError(safeRestaurantErrorMessage(loadError, 'تعذر تحميل الفروع لشاشة المطبخ'));
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [user?.branch_id, user?.tenant_id]);
+
+    useEffect(() => {
+        if (!user?.tenant_id || !branchId) return;
+        let cancelled = false;
+        setLoading(true);
+        setError('');
+
+        void loadKdsTickets(user.tenant_id, branchId, station)
+            .then((nextTickets) => {
+                if (!cancelled) setTickets(nextTickets);
+            })
+            .catch((loadError) => {
+                if (!cancelled) setError(safeRestaurantErrorMessage(loadError, 'تعذر تحميل تذاكر المطبخ'));
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [branchId, reloadTick, station, user?.tenant_id]);
+
+    useEffect(() => {
+        if (!branchId || !user?.tenant_id) return;
+        const unsubscribe = subscribeToKdsTickets(branchId, async (eventType) => {
+            try {
+                if (eventType === 'INSERT') {
+                    await playKdsPing();
+                }
+                const nextTickets = await loadKdsTickets(user.tenant_id!, branchIdRef.current, station);
+                setTickets(nextTickets);
+                setRealtimeIssue('');
+            } catch (refreshError) {
+                setRealtimeIssue(safeRestaurantErrorMessage(refreshError, 'تعذر تحديث شاشة المطبخ لحظيًا، يرجى التحديث اليدوي.'));
+            }
+        });
+
+        return () => {
+            unsubscribe();
+        };
+    }, [branchId, station, user?.tenant_id]);
+
+    const visibleTickets = useMemo(
+        () => tickets.filter((ticket) => !shouldHideTicket(ticket)),
+        [tickets]
+    );
+
+    const pendingCount = visibleTickets.filter((ticket) => ticket.status === 'pending').length;
+    const preparingCount = visibleTickets.filter((ticket) => ticket.status === 'preparing').length;
+
+    const handleAdvance = async (ticket: RestaurantKdsTicket) => {
+        const nextStatus = ticket.status === 'pending' ? 'preparing' : ticket.status === 'preparing' ? 'ready' : 'dismissed';
+        setMutatingTicketId(ticket.id);
+        try {
+            await updateKdsTicketStatus(ticket.id, nextStatus);
+            if (user?.tenant_id && branchId) {
+                const nextTickets = await loadKdsTickets(user.tenant_id, branchId, station);
+                setTickets(nextTickets);
+            }
+            const nextStatusLabel =
+                nextStatus === 'preparing' ? 'قيد التحضير' : nextStatus === 'ready' ? 'جاهز' : 'مغلق';
+            setSuccess(`تم تحديث حالة التذكرة: ${nextStatusLabel}.`);
+            setError('');
+        } catch (advanceError) {
+            setError(safeRestaurantErrorMessage(advanceError, 'تعذر تحديث حالة التذكرة'));
+        } finally {
+            setMutatingTicketId('');
+        }
+    };
+
+    return (
+        <div className="-m-6 min-h-[calc(100vh-var(--topbar-h))] w-[calc(100%+3rem)] bg-[radial-gradient(circle_at_top,#15396b_0%,#071C3B_38%,#041126_100%)] text-white" dir="rtl">
+            <div className="border-b border-white/10 bg-[#071C3B]/80 px-6 py-5 backdrop-blur">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-[20px] bg-cyan/15 text-cyan">
+                            <ChefHat size={24} />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl font-black">Kitchen Display System</h1>
+                            <p className="mt-1 text-sm text-white/55">شاشة مطبخ لحظية للمحطات الرئيسية مع ألوان زمنية وتنبيهات آمنة.</p>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                        <div className="rounded-[18px] border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-cyan">
+                            {clock}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                void document.documentElement.requestFullscreen?.().catch(() => undefined);
+                            }}
+                            className="inline-flex items-center gap-2 rounded-[18px] border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/10"
+                        >
+                            <Expand size={16} />
+                            ملء الشاشة
+                        </button>
+                    </div>
+                </div>
+
+                <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex flex-wrap gap-2">
+                        {stations.map((entry) => (
+                            <button
+                                key={entry}
+                                type="button"
+                                onClick={() => setStation(entry)}
+                                className={`rounded-full px-4 py-2 text-sm font-black transition ${
+                                    station === entry ? 'bg-cyan text-[#071C3B]' : 'bg-white/5 text-white/65 hover:bg-white/10'
+                                }`}
+                            >
+                                {entry === 'all' ? 'كل المحطات' : entry}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                        {branches.length > 0 ? (
+                            <select
+                                value={branchId}
+                                onChange={(event) => {
+                                    setBranchId(event.target.value);
+                                    branchIdRef.current = event.target.value;
+                                }}
+                                className="rounded-[18px] border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white outline-none"
+                            >
+                                {branches.map((branch) => (
+                                    <option key={branch.id} value={branch.id} className="text-slate-900">
+                                        {branch.name_ar || branch.name}
+                                    </option>
+                                ))}
+                            </select>
+                        ) : (
+                            <span className="rounded-[18px] border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm font-bold text-amber-100">
+                                لا يوجد فرع نشط — أضف فرعًا أولاً
+                            </span>
+                        )}
+                        <div className="rounded-[18px] border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/75">
+                            Pending: <span className="text-cyan">{pendingCount}</span>
+                        </div>
+                        <div className="rounded-[18px] border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white/75">
+                            Preparing: <span className="text-amber-200">{preparingCount}</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setReloadTick((value) => value + 1)}
+                            className="inline-flex items-center gap-2 rounded-[18px] border border-white/10 bg-white/5 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/10"
+                        >
+                            <RefreshCw size={16} />
+                            تحديث
+                        </button>
+                    </div>
+                </div>
+
+                {(error || realtimeIssue || success) && (
+                    <div className="mt-4 space-y-2">
+                        {success ? (
+                            <div className="rounded-[18px] border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm font-bold text-emerald-100">
+                                {success}
+                            </div>
+                        ) : null}
+                        {error && <div className="rounded-[18px] border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm font-bold text-rose-100">{error}</div>}
+                        {realtimeIssue && <div className="rounded-[18px] border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-bold text-amber-100">{realtimeIssue}</div>}
+                    </div>
                 )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+            </div>
 
-      {/* Action Footer */}
-      <div className="p-4 bg-surface-bg-2 border-t border-border shrink-0">
-        <button
-          onClick={() => onPrepared(order.id, elapsed, order.targetTimeMs)}
-          className="w-full relative overflow-hidden bg-cyan hover:bg-[#00c5db] text-midnight rounded-xl py-3.5 flex items-center justify-center gap-2 font-nunito font-black transition-all duration-300 shadow-[0_4px_15px_rgba(0,229,255,0.2)] hover:shadow-[0_8px_25px_rgba(0,229,255,0.4)] hover:-translate-y-0.5 active:translate-y-0 group-hover:after:animate-[shimmer_1.5s_infinite]"
-        >
-          <CheckSquare size={18} strokeWidth={2.5} />
-          Mark as Prepared
-        </button>
-      </div>
-    </motion.div>
-  );
-};
-
-const KDSScreen: React.FC = () => {
-  const { branchName } = useAppContext();
-  const { activeOrders, markAsPrepared } = useKdsStore();
-  const { points, addPoints } = useGamificationMock();
-  const [pointsEarned, setPointsEarned] = useState<number | null>(null);
-
-  const handleOrderPrepared = (id: string, time: number, target: number) => {
-    // Gamification Logic:
-    let earned = 0;
-    if (time <= target) {
-      earned = 50;
-    } else if (time <= target + 120000) {
-      earned = 10;
-    }
-
-    if (earned > 0) {
-      addPoints(earned);
-      setPointsEarned(earned);
-      setTimeout(() => setPointsEarned(null), 3000);
-    }
-
-    markAsPrepared(id);
-  };
-
-  return (
-    <div className="flex flex-col h-[calc(100vh-var(--topbar-h))] -m-6 w-[calc(100%+3rem)] bg-surface-bg overflow-hidden animate-fade-in relative">
-
-      {/* Header */}
-      <div className="h-16 bg-midnight border-b border-white/10 flex items-center justify-between px-6 shrink-0 shadow-md z-10">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-cyan/20 flex items-center justify-center text-cyan shadow-[0_0_15px_rgba(0,229,255,0.2)]">
-            <UtensilsCrossed size={20} />
-          </div>
-          <div>
-            <h1 className="font-nunito font-black text-white text-[1.2rem] leading-none">Kitchen Display System</h1>
-            <p className="text-[0.7rem] justify-center text-cyan font-bold mt-1 uppercase tracking-wider">{branchName}</p>
-          </div>
+            <div className="px-6 py-6">
+                {loading ? (
+                    <div className="flex min-h-[55vh] items-center justify-center">
+                        <Loader2 className="h-8 w-8 animate-spin text-cyan" />
+                    </div>
+                ) : visibleTickets.length === 0 ? (
+                    <div className="flex min-h-[55vh] flex-col items-center justify-center rounded-[36px] border border-dashed border-white/15 bg-white/5 text-center text-white/60">
+                        <Bell className="mb-4 h-14 w-14 text-cyan" />
+                        <h2 className="text-3xl font-black text-white">المطبخ جاهز</h2>
+                        <p className="mt-2 max-w-lg text-sm">
+                            لا توجد تذاكر مطبخ لهذا الفرع والمحطة المختارة حاليًا — وهذا طبيعي قبل أول طلب يُرسَل من نقطة البيع. تأكد أن الفرع هنا يطابق فرع نقطة المطعم، ثم أرسل طلبًا للمطبخ من الطاولة. ستظهر التذاكر لحظيًا مع تنبيه عند وصول طلب جديد.
+                        </p>
+                        {station !== 'all' ? (
+                            <p className="mt-4 max-w-lg text-xs text-white/45">
+                                المحطة الحالية: <span className="font-bold text-cyan/90">{station}</span>. إن كان الطلب يُحضَّر على محطة أخرى (حسب إعداد الصنف)، جرّب زر «كل المحطات» أعلاه.
+                            </p>
+                        ) : null}
+                    </div>
+                ) : (
+                    <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
+                        {visibleTickets.map((ticket) => (
+                            <div key={ticket.id} className={mutatingTicketId === ticket.id ? 'opacity-70' : ''}>
+                                <KDSTicketCard ticket={ticket} onAdvance={handleAdvance} />
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
         </div>
-
-        <div className="flex items-center gap-6">
-          <div className="flex flex-col items-end">
-            <span className="text-[0.65rem] text-content-4 uppercase font-bold tracking-widest">Active Orders</span>
-            <span className="font-nunito font-black text-white text-xl leading-none mt-0.5">{activeOrders.length}</span>
-          </div>
-
-          <div className="h-10 bg-surface-card/10 border border-white/10 rounded-xl px-4 flex items-center gap-2 relative">
-            <Zap size={16} className="text-warning" fill="currentColor" />
-            <span className="font-nunito font-black text-white text-base">{points}</span>
-            <span className="text-[0.6rem] text-content-4 font-bold uppercase tracking-wider pt-0.5">PTS</span>
-
-            <AnimatePresence>
-              {pointsEarned !== null && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.5 }}
-                  animate={{ opacity: 1, y: -25, scale: 1 }}
-                  exit={{ opacity: 0, y: -40 }}
-                  className="absolute top-0 right-0 font-black text-success text-sm drop-shadow-md"
-                >
-                  +{pointsEarned}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
-      </div>
-
-      {/* Orders Grid */}
-      <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
-        {activeOrders.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-content-4 opacity-60">
-            <CheckSquare size={64} strokeWidth={1} className="mb-4" />
-            <h2 className="font-nunito font-extrabold text-2xl text-midnight mb-2">Kitchen is Clear</h2>
-            <p className="font-bold">Waiting for new orders from the POS...</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6 auto-rows-[380px]">
-            <AnimatePresence>
-              {activeOrders.map(order => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  onPrepared={handleOrderPrepared}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-        )}
-      </div>
-
-    </div>
-  );
-};
-
-export default KDSScreen;
+    );
+}
