@@ -176,12 +176,18 @@ const WorkInboxScreen: React.FC = () => {
             {readNotifications.length ? (
               <WorkInboxPanel notifications={readNotifications} busyId={busyId} onMarkRead={handleMarkRead} />
             ) : (
-              <WorkEmptyState title="لا توجد تنبيهات مقروءة بعد" description="بعد قراءة بعض التنبيهات ستنتقل تلقائيًا إلى هذا القسم." />
+              <WorkEmptyState
+                title="لا توجد تنبيهات مقروءة بعد"
+                description="السبب: لا توجد تنبيهات مقروءة حاليًا في مساحة العمل الحالية. بعد قراءة تنبيهات جديدة ستظهر هنا."
+              />
             )}
           </section>
         </div>
       ) : (
-        <WorkEmptyState title="البريد الداخلي فارغ" description="لم يتم تسجيل أي إشعارات داخلية حتى الآن في مساحة العمل الحالية." />
+        <WorkEmptyState
+          title="البريد الداخلي فارغ"
+          description="السبب: لا توجد تنبيهات داخلية مسجّلة بعد في مساحة العمل الحالية. جرّب تشغيل/ربط بيانات تجريبية لبدء ظهورها."
+        />
       )}
     </div>
   );

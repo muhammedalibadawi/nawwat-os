@@ -130,7 +130,7 @@ const PharmacyInventoryScreen: React.FC = () => {
 
       {!loading && branches.length === 0 ? (
         <StatusBanner variant="warning" className="rounded-2xl">
-          لا يوجد فرع نشط — لا يمكن عرض دفعات الصيدلية حتى يُضاف فرع.
+          السبب: لا يوجد فرع نشط — لا يمكن عرض دفعات الصيدلية حتى يُضاف فرع للمستأجر/الفرع الحالي.
         </StatusBanner>
       ) : null}
 
@@ -150,18 +150,18 @@ const PharmacyInventoryScreen: React.FC = () => {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           {!loading && selectedBranchId && batches.length === 0 ? (
             <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              لا توجد دفعات مسجلة لهذا الفرع. إن وُضعت بذور على فرع آخر فاختره من القائمة أعلاه، أو نفّذ استلامًا من «استلام الأدوية».
+              السبب: لا توجد دفعات مسجلة لهذا الفرع بعد. إن وُضعت بذور على فرع آخر فاختره من القائمة أعلاه، أو نفّذ استلامًا من «استلام الأدوية».
             </div>
           ) : null}
           {!loading && selectedBranchId && batches.length > 0 && visibleRows.length === 0 ? (
             <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              لا توجد دفعات ضمن هذا التبويب للفرع المختار (جميع الدفعات خارج معايير التبويب الحالي).
+              السبب: لا توجد دفعات ضمن هذا التبويب للفرع المختار (جميع الدفعات خارج معايير التبويب الحالي).
             </div>
           ) : null}
           <DataTable
             data={visibleRows}
             className="!rounded-[24px]"
-            emptyMessage="لا توجد دفعات مطابقة في هذا العرض."
+            emptyMessage="السبب: لا توجد دفعات مطابقة لمعايير هذا العرض/التبويب الحالي."
             onRowClick={(row) => setSelectedBatch(row)}
             columns={[
               { header: 'المنتج', accessorKey: (row) => row.brand_name || row.item_name || row.generic_name || 'دواء' },
@@ -218,7 +218,7 @@ const PharmacyInventoryScreen: React.FC = () => {
           <DataTable
             data={reportMovements}
             className="!rounded-[24px]"
-            emptyMessage="لا توجد حركات مخزون مسجلة لهذا الفرع بعد."
+            emptyMessage="السبب: لا توجد حركات مخزون مسجّلة لهذا الفرع بعد."
             columns={[
               { header: 'التاريخ', accessorKey: (row) => new Date(row.date).toLocaleString('ar-AE') },
               { header: 'نوع الحركة', accessorKey: 'movement_type' },
@@ -230,18 +230,18 @@ const PharmacyInventoryScreen: React.FC = () => {
         <>
           {!loading && selectedBranchId && batches.length === 0 ? (
             <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              لا توجد دفعات لهذا الفرع. جرّب فرعًا آخر إن وُضعت البذور هناك، أو سجّل استلامًا من «استلام الأدوية».
+              السبب: لا توجد دفعات لهذا الفرع حتى الآن. جرّب فرعًا آخر إن وُضعت البذور هناك، أو سجّل استلامًا من «استلام الأدوية».
             </div>
           ) : null}
           {!loading && selectedBranchId && batches.length > 0 && visibleRows.length === 0 ? (
             <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              توجد دفعات للفرع لكن لا شيء يطابق هذا التبويب (مثلاً لا دفعات قريبة الانتهاء أو تحت الحد).
+              السبب: توجد دفعات لهذا الفرع لكن لا شيء يطابق معايير التبويب الحالي (مثلاً لا دفعات قريبة الانتهاء أو تحت الحد).
             </div>
           ) : null}
           <DataTable
             data={visibleRows}
             className="!rounded-[24px]"
-            emptyMessage="لا توجد دفعات في هذا العرض."
+            emptyMessage="السبب: لا توجد دفعات مطابقة لمعايير هذا العرض/التبويب الحالي."
             onRowClick={(row) => setSelectedBatch(row)}
             columns={[
             { header: 'المنتج', accessorKey: (row) => row.brand_name || row.item_name || row.generic_name || 'دواء' },

@@ -256,7 +256,7 @@ const WorkDocsScreen: React.FC = () => {
 
       {!loading && data && teamSpacesCount === 0 ? (
         <StatusBanner variant="warning" className="rounded-2xl">
-          لا توجد مساحات فريق في بيئة WorkOS الحالية بعد. لإنشاء مستندات، ابدأ من{' '}
+          السبب: لا توجد مساحات فريق مهيأة في WorkOS لهذا tenant/مساحة العمل بعد. لإنشاء مستندات، ابدأ من{' '}
           <Link to="/work/team-spaces" className="font-black underline underline-offset-2">
             مساحات الفرق
           </Link>

@@ -99,17 +99,17 @@ const PharmacyReceivingScreen: React.FC = () => {
 
       {!loading && branches.length === 0 ? (
         <StatusBanner variant="warning" className="rounded-2xl">
-          لا يوجد فرع نشط — اختر/أضف فرعًا قبل تسجيل الاستلام.
+          السبب: لا يوجد فرع نشط — اختر/أضف فرعًا قبل تسجيل الاستلام.
         </StatusBanner>
       ) : null}
       {!loading && products.length === 0 ? (
         <StatusBanner variant="warning" className="rounded-2xl">
-          لا توجد أصناف صيدلية في الكتالوج. أضف منتجات أو طبّق بذور التجربة قبل تعبئة أسطر الاستلام.
+          السبب: لا توجد أصناف صيدلية في الكتالوج بعد. أضف منتجات أو طبّق بذور التجربة قبل تعبئة أسطر الاستلام.
         </StatusBanner>
       ) : null}
       {!loading && suppliers.length === 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          لا يوجد مورد مسجّل — يمكنك ترك «المورد» فارغًا إن كان الاستلام بدون مورد، أو أضف موردًا من بيانات المستأجر.
+          السبب: لا يوجد مورد مسجّل — يمكنك ترك «المورد» فارغًا إن كان الاستلام بدون مورد، أو أضف موردًا من بيانات المستأجر.
         </div>
       ) : null}
 
@@ -203,11 +203,16 @@ const PharmacyReceivingScreen: React.FC = () => {
           </div>
 
           <div className="mt-6 flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !branchId}
+              className="rounded-2xl bg-[#071C3B] px-5 py-3 text-sm font-black text-white disabled:opacity-50"
+            >
+              {saving ? 'جارٍ الحفظ...' : 'حفظ الاستلام'}
+            </button>
             <button type="button" onClick={() => setRows([emptyRow()])} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-600">
               تفريغ النموذج
-            </button>
-            <button type="button" onClick={handleSave} disabled={saving || !branchId} className="rounded-2xl bg-[#071C3B] px-5 py-3 text-sm font-black text-white disabled:opacity-50">
-              {saving ? 'جارٍ الحفظ...' : 'حفظ الاستلام'}
             </button>
           </div>
         </section>

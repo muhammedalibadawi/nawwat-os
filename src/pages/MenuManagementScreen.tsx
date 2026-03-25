@@ -514,10 +514,10 @@ export default function MenuManagementScreen() {
     ];
 
     return (
-        <div className="space-y-6 p-6" dir="rtl">
-            <div className="flex flex-col gap-4 rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+            <div className="space-y-6 p-6" dir="rtl">
+                <div className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm xl:flex-row xl:items-center xl:justify-between">
                 <div>
-                    <h1 className="text-3xl font-black text-[#071C3B]">Menu Management</h1>
+                    <h1 className="text-2xl font-black text-[#071C3B]">Menu Management</h1>
                     <p className="mt-2 text-sm text-slate-500">إدارة أصناف المطعم، التصنيفات، المعدلات، والوصفات مع حساب التكلفة والهوامش.</p>
                 </div>
                 <div className="flex flex-wrap gap-3">
@@ -547,7 +547,7 @@ export default function MenuManagementScreen() {
 
             {!loading && branches.length === 0 && (
                 <StatusBanner variant="warning">
-                    أضف فرعًا نشطًا لعرض أصناف القائمة المرتبطة بالفرع. التصنيفات والمعدلات تظهر لجميع الفروع.
+                    السبب: لا يوجد فرع نشط للمستأجر الحالي، لذلك لن تظهر أصناف القائمة المرتبطة بالفرع. التصنيفات والمعدلات تظهر لجميع الفروع.
                 </StatusBanner>
             )}
 
@@ -565,20 +565,20 @@ export default function MenuManagementScreen() {
                 <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
                     {branchId && menuItems.length === 0 ? (
                         <div className="mb-4 rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                            لا توجد أصناف مسجلة لهذا الفرع بعد. أضف صنفًا جديدًا، أو إن وُضعت البذور على فرع آخر فاختره من القائمة أعلاه.
+                            السبب: لا توجد أصناف لهذا الفرع في التبويب الحالي بعد. أضف صنفًا جديدًا، أو إن وُضعت بذور التجربة على فرع آخر فاختره من القائمة أعلاه.
                         </div>
                     ) : null}
                     <DataTable
                         data={menuItems}
                         columns={menuColumns}
-                        emptyMessage="لا توجد أصناف قائمة لهذا الفرع في العرض الحالي."
+                        emptyMessage="السبب: لا توجد أصناف قائمة لهذا الفرع في العرض الحالي بعد."
                     />
                 </div>
             ) : activeTab === 'categories' ? (
                 <div className="space-y-4">
                     {!loading && categories.length === 0 ? (
                         <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                            لا توجد تصنيفات قائمة بعد. أنشئ تصنيفًا بالزر «تصنيف جديد» — التصنيفات مرتبطة بالمستأجر ونوع «menu» وليست مقتصرة على فرع واحد.
+                            السبب: لا توجد تصنيفات قائمة لهذا المستأجر ونوع «menu» بعد. أنشئ تصنيفًا بالزر «تصنيف جديد» — التصنيفات مرتبطة بالمستأجر وليست مقتصرة على فرع واحد.
                         </div>
                     ) : null}
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -637,7 +637,7 @@ export default function MenuManagementScreen() {
                 <div className="space-y-4">
                     {!loading && modifierGroups.length === 0 ? (
                         <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                            لا توجد مجموعات معدلات بعد. أضف مجموعة ثم اربطها بالأصناف من نموذج «صنف جديد/تعديل». المعدلات مشتركة على مستوى المستأجر.
+                            السبب: لا توجد مجموعات معدلات لهذا المستأجر بعد. أضف مجموعة ثم اربطها بالأصناف من نموذج «صنف جديد/تعديل». المعدلات مشتركة على مستوى المستأجر.
                         </div>
                     ) : null}
                     <div className="grid gap-4 lg:grid-cols-2">
@@ -685,7 +685,7 @@ export default function MenuManagementScreen() {
                 <div className="space-y-4">
                     {!loading && recipeSummaries.length === 0 ? (
                         <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                            لا توجد وصفات/تحليل تكلفة للأصناف الحالية. يظهر هذا التبويب بعد وجود أصناف قائمة مرتبطة بوصفات في النظام؛ ابدأ من «عناصر القائمة» أو تحقق من ربط الـ item بالوصفة.
+                            السبب: لا توجد وصفات/تحليل تكلفة للأصناف الحالية بعد. يظهر هذا التبويب بعد وجود أصناف قائمة مرتبطة بوصفات في النظام؛ ابدأ من «عناصر القائمة» أو تحقق من ربط الـ item بالوصفة.
                         </div>
                     ) : null}
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

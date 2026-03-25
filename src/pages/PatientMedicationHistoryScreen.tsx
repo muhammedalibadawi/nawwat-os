@@ -82,7 +82,7 @@ const PatientMedicationHistoryScreen: React.FC = () => {
 
       {!loading && patients.length === 0 ? (
         <StatusBanner variant="warning" className="rounded-2xl">
-          لا يوجد مرضى أو عملاء (نوع مريض/عميل) في القائمة. أضف جهة اتصال من شاشة العملاء أو طبّق بذور التجربة لعرض التاريخ الدوائي.
+          السبب: لا يوجد مرضى أو عملاء (نوع مريض/عميل) في القائمة لهذا tenant/مساحة العمل بعد. أضف جهة اتصال من شاشة العملاء أو طبّق بذور التجربة لعرض التاريخ الدوائي.
         </StatusBanner>
       ) : null}
 

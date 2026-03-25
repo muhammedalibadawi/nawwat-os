@@ -49,7 +49,7 @@ const WorkHomeScreen: React.FC = () => {
       ) : null}
       {!loading && data && data.summary.team_space_count === 0 && data.summary.project_count === 0 ? (
         <StatusBanner variant="warning" className="rounded-2xl">
-          بيئة WorkOS الحالية لا تحتوي بيانات بعد (مساحات/مشاريع). هذا ليس عطلًا Runtime؛ ابدأ ببيانات تجريبية بسيطة لتمرير smoke test يدوي.
+          السبب: لا توجد مساحات فرق أو مشاريع مهيأة في WorkOS لهذا tenant/مساحة العمل بعد. هذا ليس عطلًا Runtime؛ ابدأ ببيانات تجريبية بسيطة لتمرير smoke test يدوي.
         </StatusBanner>
       ) : null}
 
@@ -166,7 +166,7 @@ const WorkHomeScreen: React.FC = () => {
                   ) : (
                     <WorkEmptyState
                       title="لا يوجد نشاط حديث"
-                      description="عند إنشاء مشاريع أو ربط عناصر أو تسجيل أنشطة في WorkOS ستبدأ هذه القائمة بالظهور."
+                      description="السبب: لا يوجد نشاط حديث مسجل حاليًا. عند إنشاء مشاريع أو ربط عناصر أو تسجيل أنشطة في WorkOS ستبدأ هذه القائمة بالظهور."
                     />
                   )}
                 </div>

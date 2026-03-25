@@ -432,7 +432,10 @@ const WorkProjectDetailScreen: React.FC = () => {
   if (!id) {
     return (
       <div dir="rtl" className="space-y-6">
-        <WorkEmptyState title="معرّف المشروع غير متاح" description="تعذر تحديد المشروع المطلوب من الرابط الحالي." />
+        <WorkEmptyState
+          title="معرّف المشروع غير متاح"
+          description="السبب: تعذر تحديد المشروع المطلوب من الرابط الحالي (المعرّف غير موجود/غير صالح)."
+        />
       </div>
     );
   }
@@ -718,7 +721,10 @@ const WorkProjectDetailScreen: React.FC = () => {
                       </div>
                     ))
                   ) : (
-                    <WorkEmptyState title="لا يوجد أعضاء بعد" description="عند ربط أعضاء بالمشروع ستظهر هنا أدوارهم وحالة عضويتهم." />
+                    <WorkEmptyState
+                      title="لا يوجد أعضاء بعد"
+                      description="السبب: لا توجد أعضاء مرتبطون بهذا المشروع بعد. عند ربط أعضاء سيظهر هنا دورهم وحالة العضوية."
+                    />
                   )}
                 </div>
               </section>
@@ -736,7 +742,10 @@ const WorkProjectDetailScreen: React.FC = () => {
                       </article>
                     ))
                   ) : (
-                    <WorkEmptyState title="لا توجد علاقات مرئية بعد" description="ستظهر هنا الروابط بين المشروع وبقية عناصر WorkOS مثل المستندات والقنوات والمهام." />
+                    <WorkEmptyState
+                      title="لا توجد علاقات مرئية بعد"
+                      description="السبب: لا توجد روابط بين المشروع وبقية عناصر WorkOS (مستندات/قنوات/مهام) حتى الآن."
+                    />
                   )}
                 </div>
               </section>
@@ -744,7 +753,10 @@ const WorkProjectDetailScreen: React.FC = () => {
           </div>
         </>
       ) : (
-        <WorkEmptyState title="المشروع غير متاح" description="تعذر العثور على المشروع المطلوب ضمن مساحة العمل الحالية." />
+        <WorkEmptyState
+          title="المشروع غير متاح"
+          description="السبب: تعذر العثور على المشروع المطلوب ضمن مساحة العمل الحالية (قد يكون بسبب رابط غير صحيح أو mismatch في tenant/صلاحيات)."
+        />
       )}
 
       {data ? (
