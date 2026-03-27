@@ -332,7 +332,7 @@ export const WORK_TASK_TYPE_OPTIONS: Array<{ value: WorkTaskType; label: string 
 
 export function canContributeWorkRole(role?: AppRole | null) {
   if (!role) return false;
-  return role !== 'viewer' && role !== 'customer' && role !== 'employee';
+  return role !== 'viewer';
 }
 
 export function buildWorkSlug(input: string, prefix = 'work') {
