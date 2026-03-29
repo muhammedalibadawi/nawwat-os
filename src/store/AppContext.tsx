@@ -5,6 +5,9 @@ import { supabase } from '../lib/supabase';
 interface AppContextType {
     sidebarMini: boolean;
     toggleSidebar: () => void;
+    mobileSidebarOpen: boolean;
+    toggleMobileSidebar: () => void;
+    closeMobileSidebar: () => void;
     isRTL: boolean;
     toggleRTL: () => void;
     tenantName: string;
@@ -16,11 +19,14 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user } = useAuth();
     const [sidebarMini, setSidebarMini] = useState(false);
+    const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const [isRTL, setIsRTL] = useState(true);
     const [tenantName, setTenantName] = useState('');
     const [branchName, setBranchName] = useState('');
 
     const toggleSidebar = () => setSidebarMini(prev => !prev);
+    const toggleMobileSidebar = () => setMobileSidebarOpen(prev => !prev);
+    const closeMobileSidebar = () => setMobileSidebarOpen(false);
     const toggleRTL = () => setIsRTL(prev => !prev);
 
     // Keep document direction/lang in sync with RTL toggle (default: RTL / Arabic)
@@ -83,6 +89,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             value={{
                 sidebarMini,
                 toggleSidebar,
+                mobileSidebarOpen,
+                toggleMobileSidebar,
+                closeMobileSidebar,
                 isRTL,
                 toggleRTL,
                 tenantName,

@@ -8,21 +8,13 @@ const CommerceScreen: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'ingress' | 'egress' | 'mappings' | 'channels'>('ingress');
 
     return (
-        <div className="flex flex-col h-full gap-6 animate-fade-in w-full max-w-[1400px] mx-auto pb-10">
+        <div className="flex h-full w-full flex-col gap-6">
 
-            {/* Header Area */}
-            <div className="flex items-end justify-between">
-                <div>
-                    <h1 className="text-[1.85rem] font-extrabold text-white tracking-tight">Commerce Integrations</h1>
-                    <p className="text-[0.85rem] text-content-3 mt-1.5 max-w-2xl leading-relaxed">
-                        Monitor active webhook queues and troubleshoot outbound execution barriers spanning the entire multi-tenant catalog ecosystem.
-                    </p>
-                </div>
-                
-                {/* 
-                  MVP Note: Channel Configuration & Catalog mapping modules are pushed down 
-                  the roadmap and will populate auxiliary actions here in future phases. 
-                */}
+            <div>
+                <h2 className="text-lg font-black text-white">التكامل الفني للقنوات</h2>
+                <p className="mt-1 max-w-2xl text-[0.85rem] leading-relaxed text-content-3">
+                    طابور ويبهوك وارد، مهام مزامنة صادرة، وتعيين SKU — ضمن CommerceOS (طبقة إيراد القنوات).
+                </p>
             </div>
 
             {/* Module Picker / Navigation Surface */}

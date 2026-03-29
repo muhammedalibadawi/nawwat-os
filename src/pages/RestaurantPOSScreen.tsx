@@ -280,7 +280,7 @@ export default function RestaurantPOSScreen() {
             setSuccess(
                 nextOrder
                     ? `تم إرسال الطلب ${String(response.order_no || '')} إلى المطبخ بنجاح. يمكنك الآن الدفع من شاشة نفس الطاولة.`
-                    : `تم إرسال الطلب ${String(response.order_no || '')} إلى المطبخ بنجاح، لكن تعذر تحميل الطلب للدفع الآن. اختر الطاولة مرة أخرى خلال لحظات لإكمال الإجراء.`
+                    : `تم إرسال الطلب ${String(response.order_no || '')} إلى المطبخ بنجاح، لكن تعذر تحميل الطلب للدفع الآن. اختر الطاولة مرة أخرى خلال لحظات، وتأكد أن شاشة KDS على نفس الفرع/المحطة لتظهر التذكرة.`
             );
         } catch (sendError) {
             setError(safeRestaurantErrorMessage(sendError, 'تعذر إرسال الطلب إلى المطبخ'));

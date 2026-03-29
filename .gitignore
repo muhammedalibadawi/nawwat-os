@@ -2,3 +2,16 @@
 .env.local
 node_modules/
 dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local SQLite (dev)
+nawwat.db
+
+# Supabase CLI cache
+supabase/.temp/
+
+*.bak

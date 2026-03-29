@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 
 export const Topbar: React.FC = () => {
-    const { toggleSidebar, tenantName, branchName, isRTL, toggleRTL } = useAppContext();
+    const { toggleSidebar, toggleMobileSidebar, tenantName, branchName, isRTL, toggleRTL } = useAppContext();
     const { user } = useAuth();
     const navigate = useNavigate();
     const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -87,7 +87,13 @@ export const Topbar: React.FC = () => {
 
             {/* Sidebar Toggle */}
             <button
-                onClick={toggleSidebar}
+                onClick={() => {
+                    if (window.matchMedia('(max-width: 1023px)').matches) {
+                        toggleMobileSidebar();
+                    } else {
+                        toggleSidebar();
+                    }
+                }}
                 className="w-[var(--sidebar-mini)] h-full border-none bg-transparent flex items-center justify-center cursor-pointer text-content-3 shrink-0 transition-colors hover:bg-surface-bg hover:text-content border-e border-border"
             >
                 <Menu size={18} strokeWidth={2.2} />

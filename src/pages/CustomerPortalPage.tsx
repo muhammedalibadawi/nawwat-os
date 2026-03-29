@@ -3,8 +3,20 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { generateInvoicePDF } from '../utils/generateInvoicePDF';
 
+type PortalInvoice = {
+    id: string;
+    invoice_no?: string | null;
+    total?: number | string | null;
+    amount_paid?: number | string | null;
+    status?: string | null;
+    issue_date?: string | null;
+    created_at?: string | null;
+    invoice_items?: any[];
+};
+
 /**
- * Public customer portal — magic link auth; no tenant in AppUser required.
+ * Customer portal.
+ * Reads tenant context from JWT app_metadata and relies on RLS for invoice visibility.
  */
 export default function CustomerPortalPage() {
     const { session, signInWithOtp, signOut } = useAuth();
@@ -12,71 +24,87 @@ export default function CustomerPortalPage() {
     const [msg, setMsg] = useState('');
     const [err, setErr] = useState('');
     const [loading, setLoading] = useState(false);
-    const [tenantId, setTenantId] = useState<string | null>(null);
     const [tenantName, setTenantName] = useState('');
     const [logoUrl, setLogoUrl] = useState<string | null>(null);
-    const [invoices, setInvoices] = useState<any[]>([]);
+    const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
     const [loadingData, setLoadingData] = useState(false);
 
+    const appMeta = session?.user?.app_metadata ?? {};
     const userEmail = session?.user?.email?.toLowerCase().trim() ?? '';
+    const portalTenantId = typeof appMeta.tenant_id === 'string' ? appMeta.tenant_id : '';
+    const portalRole = typeof appMeta.user_role === 'string' ? appMeta.user_role : '';
+    const hasPortalIdentity = Boolean(session?.user && portalRole === 'customer' && portalTenantId);
 
     useEffect(() => {
         const load = async () => {
-            if (!userEmail) {
+            if (!session?.user) {
+                setErr('');
+                setTenantName('');
+                setLogoUrl(null);
                 setInvoices([]);
-                setTenantId(null);
+                setLoadingData(false);
                 return;
             }
+
+            if (!hasPortalIdentity) {
+                setErr('هذا الحساب غير مرتبط ببوابة عميل مفعّلة.');
+                setTenantName('');
+                setLogoUrl(null);
+                setInvoices([]);
+                setLoadingData(false);
+                return;
+            }
+
             setLoadingData(true);
             setErr('');
-            try {
-                const { data: contacts, error: cErr } = await supabase
-                    .from('contacts')
-                    .select('id,tenant_id')
-                    .ilike('email', userEmail)
-                    .limit(5);
-                if (cErr) throw cErr;
-                const tid = (contacts ?? [])[0]?.tenant_id as string | undefined;
-                if (!tid) {
-                    setTenantId(null);
-                    setInvoices([]);
-                    return;
-                }
-                setTenantId(tid);
-                const { data: trow } = await supabase.from('tenants').select('name,name_ar,logo_url').eq('id', tid).single();
-                setTenantName(trow?.name_ar || trow?.name || '');
-                setLogoUrl(trow?.logo_url ?? null);
 
-                const contactIds = (contacts ?? []).map((c: any) => c.id);
-                const { data: inv, error: iErr } = await supabase
-                    .from('invoices')
-                    .select('*, invoice_items(*)')
-                    .eq('tenant_id', tid)
-                    .in('contact_id', contactIds)
-                    .order('created_at', { ascending: false });
-                if (iErr) throw iErr;
-                setInvoices(inv ?? []);
+            try {
+                const [{ data: tenant, error: tenantError }, { data: invoiceRows, error: invoiceError }] = await Promise.all([
+                    supabase
+                        .from('tenants')
+                        .select('id,name,name_ar,logo_url')
+                        .eq('id', portalTenantId)
+                        .single(),
+                    supabase
+                        .from('invoices')
+                        .select('id, invoice_no, total, amount_paid, status, issue_date, created_at, invoice_items(*)')
+                        .eq('tenant_id', portalTenantId)
+                        .order('created_at', { ascending: false }),
+                ]);
+
+                if (tenantError) throw tenantError;
+                if (invoiceError) throw invoiceError;
+
+                setTenantName(tenant?.name_ar || tenant?.name || '');
+                setLogoUrl(tenant?.logo_url ?? null);
+                setInvoices((invoiceRows as PortalInvoice[] | null) ?? []);
             } catch (e: any) {
-                setErr(e?.message ?? 'تعذر تحميل البيانات');
+                setErr(e?.message ?? 'تعذّر تحميل بيانات البوابة');
+                setTenantName('');
+                setLogoUrl(null);
                 setInvoices([]);
             } finally {
                 setLoadingData(false);
             }
         };
-        load();
-    }, [userEmail]);
+
+        void load();
+    }, [hasPortalIdentity, portalTenantId, portalRole, session?.user?.id]);
 
     const kpis = useMemo(() => {
         let due = 0;
         let paid = 0;
+
         invoices.forEach((inv) => {
-            const t = Number(inv.total ?? 0);
-            const ap = Number(inv.amount_paid ?? 0);
-            due += t;
-            paid += ap;
+            due += Number(inv.total ?? 0);
+            paid += Number(inv.amount_paid ?? 0);
         });
-        const remaining = Math.max(0, due - paid);
-        return { due, paid, remaining };
+
+        return {
+            due,
+            paid,
+            remaining: Math.max(0, due - paid),
+        };
     }, [invoices]);
 
     const sendLink = async (e: React.FormEvent) => {
@@ -84,10 +112,11 @@ export default function CustomerPortalPage() {
         setMsg('');
         setErr('');
         if (!email.trim()) return;
+
         setLoading(true);
         try {
             await signInWithOtp(email.trim(), '/portal');
-            setMsg('تم إرسال رابط الدخول لبريدك الإلكتروني');
+            setMsg('تم إرسال رابط الدخول إلى بريدك الإلكتروني');
         } catch (e: any) {
             setErr(e?.message ?? 'فشل الإرسال');
         } finally {
@@ -95,11 +124,12 @@ export default function CustomerPortalPage() {
         }
     };
 
-    const handlePdf = async (row: any) => {
-        if (!tenantId) return;
+    const handlePdf = async (row: PortalInvoice) => {
         try {
-            const { data: tenant } = await supabase.from('tenants').select('id,name').eq('id', tenantId).single();
-            await generateInvoicePDF({ ...row, invoice_items: row.invoice_items ?? [] }, tenant);
+            await generateInvoicePDF(
+                { ...row, invoice_items: row.invoice_items ?? [] },
+                { id: portalTenantId, name: tenantName || 'الشركة' }
+            );
         } catch (e: any) {
             setErr(e?.message ?? 'فشل PDF');
         }
@@ -152,12 +182,14 @@ export default function CustomerPortalPage() {
                 {session && (
                     <>
                         {loadingData && <div className="text-center py-10 text-white/70">جاري التحميل...</div>}
-                        {!loadingData && !tenantId && (
+
+                        {!loadingData && !hasPortalIdentity && (
                             <div className="text-center py-10 rounded-2xl bg-white/5 border border-white/10">
-                                لا يوجد حساب عميل مرتبط بهذا البريد في النظام.
+                                {err || 'هذا الحساب غير مهيأ لبوابة العميل.'}
                             </div>
                         )}
-                        {!loadingData && tenantId && (
+
+                        {!loadingData && hasPortalIdentity && (
                             <>
                                 <div className="flex flex-col sm:flex-row items-center gap-4 mb-8">
                                     {logoUrl ? (
@@ -223,7 +255,7 @@ export default function CustomerPortalPage() {
                                                         <button
                                                             type="button"
                                                             className="px-3 py-1.5 rounded-lg border border-white/20 text-xs font-bold opacity-50 cursor-not-allowed"
-                                                            title="قريباً"
+                                                            title="قريبًا"
                                                         >
                                                             دفع الفاتورة
                                                         </button>
@@ -232,10 +264,9 @@ export default function CustomerPortalPage() {
                                             ))}
                                         </tbody>
                                     </table>
-                                    {invoices.length === 0 && (
-                                        <div className="p-8 text-center text-white/50">لا توجد فواتير</div>
-                                    )}
+                                    {invoices.length === 0 && <div className="p-8 text-center text-white/50">لا توجد فواتير</div>}
                                 </div>
+
                                 {err && <p className="mt-4 text-red-300 text-sm">{err}</p>}
                             </>
                         )}

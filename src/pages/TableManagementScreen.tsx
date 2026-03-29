@@ -259,7 +259,7 @@ const TableManagementScreen: React.FC = () => {
             <MapIcon size={18} />
           </div>
           <div>
-            <h1 className="font-nunito font-black text-white text-lg leading-none">Live Floor Plan</h1>
+            <h1 className="font-nunito font-black text-white text-lg leading-none">Floor Plan (Demo)</h1>
             <p className="text-[0.68rem] text-cyan font-bold mt-0.5 uppercase tracking-wide">{branchName}</p>
           </div>
         </div>
@@ -283,6 +283,10 @@ const TableManagementScreen: React.FC = () => {
         <button className="md:hidden text-white/70 hover:text-cyan transition-colors">
           <ListFilter size={20} />
         </button>
+      </div>
+
+      <div className="mx-8 mt-3 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] font-bold text-amber-100">
+        Table state on this screen is currently local mock/Zustand-only and does not persist to live backend orders.
       </div>
 
       {/* Floor Plan Container (Grid) */}

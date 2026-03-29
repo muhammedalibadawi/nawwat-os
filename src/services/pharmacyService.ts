@@ -25,6 +25,12 @@ import { groupAmountByMonth, normalizePharmacyError, safeNumber } from '@/utils/
 
 type UnknownRow = Record<string, unknown>;
 
+function nullableUuidInput(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function asRows<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -434,11 +440,13 @@ async function upsertPrescriptionItems(
   prescriptionId: string,
   items: PharmacyPrescriptionDraftInput['items']
 ) {
-  const payload = items.map((item) => ({
+  const payload = items
+    .filter((item) => nullableUuidInput(item.product_id))
+    .map((item) => ({
     id: item.id,
     tenant_id: tenantId,
     prescription_id: prescriptionId,
-    product_id: item.product_id,
+    product_id: nullableUuidInput(item.product_id),
     prescribed_qty: item.prescribed_qty,
     dispensed_qty: item.dispensed_qty ?? 0,
     dosage_instructions: item.dosage_instructions ?? null,
@@ -448,7 +456,9 @@ async function upsertPrescriptionItems(
     note: item.note ?? null,
   }));
 
-  if (!payload.length) return;
+  if (!payload.length) {
+    throw new Error('لا يمكن حفظ الوصفة بدون بند دوائي صالح (product_id).');
+  }
 
   const keepIds = payload.map((item) => item.id).filter(Boolean) as string[];
   const { data: existingRows, error: existingError } = await supabase
@@ -483,9 +493,9 @@ export async function createPrescriptionDraft(
       .from('pharma_prescriptions')
       .insert({
         tenant_id: tenantId,
-        branch_id: input.branch_id,
+        branch_id: nullableUuidInput(input.branch_id),
         prescription_number: prescriptionNumber,
-        patient_id: input.patient_id,
+        patient_id: nullableUuidInput(input.patient_id),
         doctor_name: input.doctor_name ?? null,
         doctor_license: input.doctor_license ?? null,
         prescription_date: input.prescription_date,
@@ -518,8 +528,8 @@ export async function updatePrescriptionDraft(
     const { error } = await supabase
       .from('pharma_prescriptions')
       .update({
-        branch_id: input.branch_id,
-        patient_id: input.patient_id,
+        branch_id: nullableUuidInput(input.branch_id),
+        patient_id: nullableUuidInput(input.patient_id),
         doctor_name: input.doctor_name ?? null,
         doctor_license: input.doctor_license ?? null,
         prescription_date: input.prescription_date,

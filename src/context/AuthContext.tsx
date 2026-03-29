@@ -16,6 +16,8 @@ import { supabase } from '../lib/supabase';
 export type AppRole =
   | 'owner'
   | 'master_admin'
+  | 'customer'
+  | 'employee'
   | 'branch_manager'
   | 'accountant'
   | 'cashier'

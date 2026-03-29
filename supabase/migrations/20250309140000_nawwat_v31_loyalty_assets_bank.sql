@@ -31,7 +31,43 @@ CREATE TABLE IF NOT EXISTS public.loyalty_transactions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_loyalty_tx_tenant ON public.loyalty_transactions(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_loyalty_tx_customer ON public.loyalty_transactions(customer_id);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'loyalty_transactions'
+      AND column_name = 'customer_id'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_loyalty_tx_customer ON public.loyalty_transactions(customer_id)';
+  ELSIF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'loyalty_transactions'
+      AND column_name = 'contact_id'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_loyalty_tx_customer ON public.loyalty_transactions(contact_id)';
+  ELSIF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'loyalty_transactions'
+      AND column_name = 'user_id'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_loyalty_tx_customer ON public.loyalty_transactions(user_id)';
+  ELSIF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'loyalty_transactions'
+      AND column_name = 'member_id'
+  ) THEN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_loyalty_tx_customer ON public.loyalty_transactions(member_id)';
+  END IF;
+END;
+$$;
 
 CREATE TABLE IF NOT EXISTS public.assets (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

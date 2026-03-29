@@ -39,7 +39,12 @@ const ContactsScreen = React.lazy(() => import('./pages/ContactsScreen'));
 const ReportsScreen = React.lazy(() => import('./pages/ReportsScreen'));
 const SettingsScreen = React.lazy(() => import('./pages/SettingsScreen'));
 const ProfileScreen = React.lazy(() => import('./pages/ProfileScreen'));
+import CommerceShellLayout from './pages/commerce/CommerceShellLayout';
 const CommerceScreen = React.lazy(() => import('./pages/CommerceScreen'));
+const CommerceFoundationHubScreen = React.lazy(() => import('./pages/CommerceFoundationHubScreen'));
+const CommerceChannelsOpsScreen = React.lazy(() => import('./pages/commerce/CommerceChannelsOpsScreen'));
+const CommerceContractsScreen = React.lazy(() => import('./pages/commerce/CommerceContractsScreen'));
+const CommercePricingScreen = React.lazy(() => import('./pages/commerce/CommercePricingScreen'));
 const CustomerPortalPage = React.lazy(() => import('./pages/CustomerPortalPage'));
 const EmployeePortalPage = React.lazy(() => import('./pages/EmployeePortalPage'));
 const SupplierPortalPage = React.lazy(() => import('./pages/SupplierPortalPage'));
@@ -174,7 +179,55 @@ export default function App() {
               <Route path="crm" element={<RoleBasedRoute><CRMScreen /></RoleBasedRoute>} />
               <Route path="real-estate" element={<RoleBasedRoute><RealEstateScreen /></RoleBasedRoute>} />
               <Route path="hr" element={<RoleBasedRoute><HRScreen /></RoleBasedRoute>} />
-              <Route path="commerce" element={<RoleBasedRoute><CommerceScreen /></RoleBasedRoute>} />
+              <Route
+                path="commerce"
+                element={
+                  <RoleBasedRoute>
+                    <CommerceShellLayout />
+                  </RoleBasedRoute>
+                }
+              >
+                <Route
+                  index
+                  element={
+                    <Suspense fallback={<GlobalLoadingSpinner />}>
+                      <CommerceScreen />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="foundation"
+                  element={
+                    <Suspense fallback={<GlobalLoadingSpinner />}>
+                      <CommerceFoundationHubScreen />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="foundation/channels"
+                  element={
+                    <Suspense fallback={<GlobalLoadingSpinner />}>
+                      <CommerceChannelsOpsScreen />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="foundation/contracts"
+                  element={
+                    <Suspense fallback={<GlobalLoadingSpinner />}>
+                      <CommerceContractsScreen />
+                    </Suspense>
+                  }
+                />
+                <Route
+                  path="foundation/pricing"
+                  element={
+                    <Suspense fallback={<GlobalLoadingSpinner />}>
+                      <CommercePricingScreen />
+                    </Suspense>
+                  }
+                />
+              </Route>
               <Route path="accounting" element={<RoleBasedRoute><AccountingScreen /></RoleBasedRoute>} />
               <Route path="cheques" element={<Suspense fallback={<GlobalLoadingSpinner />}><ChequesRoute /></Suspense>} />
               <Route path="collection" element={<RoleBasedRoute><CollectionScreen /></RoleBasedRoute>} />

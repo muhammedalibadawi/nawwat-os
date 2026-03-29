@@ -8,7 +8,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 if (!supabaseUrl || !supabaseAnonKey) {
     const msg =
         '[NawwatOS] CRITICAL: Supabase environment variables are missing!\n\n' +
-        'Create a file at frontend/.env with:\n' +
+        'Create a file at .env with:\n' +
         '  VITE_SUPABASE_URL=https://your-project-id.supabase.co\n' +
         '  VITE_SUPABASE_ANON_KEY=your-anon-key\n\n' +
         'Find these values at: https://supabase.com → Project Settings → API'
@@ -17,11 +17,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
     if (import.meta.env.DEV) {
         alert(msg)
     }
+    throw new Error(msg)
 }
 
 export const supabase = createClient(
-    supabaseUrl ?? 'http://localhost:54321', // fallback prevents createClient crash
-    supabaseAnonKey ?? 'missing-key',
+    supabaseUrl,
+    supabaseAnonKey,
     {
         auth: {
             // CRITICAL FIX: Bypass navigator.locks to prevent Vite HMR / Headless Chrome deadlocks

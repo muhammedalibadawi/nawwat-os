@@ -1,97 +1,159 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Navigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ShieldAlert, Database, Building2, ToggleLeft, ToggleRight, Loader2, Key } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
 
 interface Tenant {
     id: string;
     name: string;
     status: string;
-    modules: string;
+    modules: string[];
 }
 
-function normalizeModules(raw: unknown): string {
-    if (raw == null) return "[]";
-    if (typeof raw === "string") return raw;
-    try {
-        return JSON.stringify(raw);
-    } catch {
-        return "[]";
-    }
-}
+const availableModules = ["POS", "HR", "Accounting", "RealEstate"];
+const backendBaseUrl = typeof import.meta.env.VITE_API_URL === "string"
+    ? import.meta.env.VITE_API_URL.replace(/\/$/, "")
+    : "";
 
 export default function AdminPortalScreen() {
-    const { user } = useAuth();
+    const { user, session, loading: authLoading } = useAuth();
     const [tenants, setTenants] = useState<Tenant[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+    const [busyKey, setBusyKey] = useState<string | null>(null);
 
-    const isAllowedRole = user?.role === "master_admin" || user?.role === "owner";
+    const isMasterAdmin = user?.role === "master_admin";
+    const accessToken = session?.access_token ?? "";
+
+    const authHeaders = useMemo(
+        () => ({
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+        }),
+        [accessToken]
+    );
+
+    const apiRequest = async <T,>(path: string, init?: RequestInit): Promise<T> => {
+        if (!backendBaseUrl) {
+            throw new Error("VITE_API_URL is not configured. Admin API calls are disabled in this environment.");
+        }
+        if (!accessToken) {
+            throw new Error("Missing admin access token");
+        }
+
+        const response = await fetch(`${backendBaseUrl}${path}`, {
+            ...init,
+            headers: {
+                ...authHeaders,
+                ...(init?.headers ?? {}),
+            },
+        });
+
+        if (!response.ok) {
+            let detail = `Request failed with status ${response.status}`;
+            try {
+                const payload = await response.json();
+                if (payload?.detail) {
+                    detail = String(payload.detail);
+                }
+            } catch {
+                const text = await response.text();
+                if (text.trim()) {
+                    detail = text.trim();
+                }
+            }
+            throw new Error(detail);
+        }
+
+        return (await response.json()) as T;
+    };
 
     const fetchTenants = async () => {
+        if (!isMasterAdmin || !accessToken) {
+            setTenants([]);
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+        setError("");
         try {
-            const { data, error } = await supabase.from("tenants").select("id, name, status, modules").order("name");
-            if (error) throw error;
-            setTenants(
-                (data ?? []).map((row: Record<string, unknown>) => ({
-                    id: String(row.id),
-                    name: String(row.name ?? ""),
-                    status: String(row.status ?? "active"),
-                    modules: normalizeModules(row.modules),
-                }))
-            );
-        } catch (error) {
-            console.error("Failed to fetch tenants:", error);
+            const data = await apiRequest<Tenant[]>("/api/v1/admin/tenants/");
+            setTenants(Array.isArray(data) ? data : []);
+        } catch (requestError) {
+            const message = requestError instanceof Error ? requestError.message : "Failed to fetch tenants";
+            console.error("Failed to fetch tenants:", requestError);
+            setError(message);
+            setTenants([]);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        if (isAllowedRole) fetchTenants();
-        else setLoading(false);
-    }, [isAllowedRole]);
+        void fetchTenants();
+    }, [accessToken, isMasterAdmin]);
 
     const toggleStatus = async (tenantId: string) => {
+        setBusyKey(`status:${tenantId}`);
+        setError("");
         try {
-            const t = tenants.find((x) => x.id === tenantId);
-            if (!t) return;
-            const next = t.status === "suspended" ? "active" : "suspended";
-            const { error } = await supabase.from("tenants").update({ status: next }).eq("id", tenantId);
-            if (error) throw error;
-            fetchTenants();
-        } catch (error) {
-            console.error("Status toggle failed:", error);
+            const result = await apiRequest<{ id: string; status: string }>(`/api/v1/admin/tenants/${tenantId}/toggle-status`, {
+                method: "POST",
+            });
+            setTenants((current) =>
+                current.map((tenant) =>
+                    tenant.id === tenantId ? { ...tenant, status: result.status } : tenant
+                )
+            );
+        } catch (requestError) {
+            const message = requestError instanceof Error ? requestError.message : "Status toggle failed";
+            console.error("Status toggle failed:", requestError);
+            setError(message);
+        } finally {
+            setBusyKey(null);
         }
     };
 
-    const toggleModule = async (tenantId: string, moduleName: string, currentModulesStr: string) => {
+    const toggleModule = async (tenantId: string, moduleName: string, currentModules: string[]) => {
+        const updatedModules = currentModules.includes(moduleName)
+            ? currentModules.filter((module) => module !== moduleName)
+            : [...currentModules, moduleName];
+
+        setBusyKey(`modules:${tenantId}`);
+        setError("");
         try {
-            const currentModules = JSON.parse(currentModulesStr || "[]") as string[];
-            let updated: string[];
-            if (currentModules.includes(moduleName)) {
-                updated = currentModules.filter((m) => m !== moduleName);
-            } else {
-                updated = [...currentModules, moduleName];
-            }
-            const { error } = await supabase.from("tenants").update({ modules: updated }).eq("id", tenantId);
-            if (error) throw error;
-            fetchTenants();
-        } catch (error) {
-            console.error("Module toggle failed:", error);
+            const result = await apiRequest<{ id: string; modules: string[] }>(`/api/v1/admin/tenants/${tenantId}/modules`, {
+                method: "PUT",
+                body: JSON.stringify({ modules: updatedModules }),
+            });
+            setTenants((current) =>
+                current.map((tenant) =>
+                    tenant.id === tenantId ? { ...tenant, modules: result.modules } : tenant
+                )
+            );
+        } catch (requestError) {
+            const message = requestError instanceof Error ? requestError.message : "Module toggle failed";
+            console.error("Module toggle failed:", requestError);
+            setError(message);
+        } finally {
+            setBusyKey(null);
         }
     };
 
-    const availableModules = ["POS", "HR", "Accounting", "RealEstate"];
-
-    if (!isAllowedRole) {
+    if (authLoading) {
         return (
-            <div className="p-8 text-center text-gray-500">
-                <ShieldAlert className="inline-block mb-2" /> غير مصرّح — يتطلب دور owner أو master_admin
+            <div className="flex items-center justify-center h-64">
+                <Loader2 size={40} className="animate-spin text-purple-600" />
             </div>
         );
+    }
+
+    if (!isMasterAdmin) {
+        return <Navigate to="/dashboard" replace />;
     }
 
     return (
@@ -101,12 +163,18 @@ export default function AdminPortalScreen() {
                     <h1 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-3">
                         <Key className="text-purple-600" /> System Overlord Command
                     </h1>
-                    <p className="text-gray-500 mt-1">Manage global tenant instances and feature flags.</p>
+                    <p className="text-gray-500 mt-1">Manage global tenant instances through verified backend controls.</p>
                 </div>
                 <div className="bg-purple-50 text-purple-700 px-4 py-2 rounded-xl font-bold flex items-center gap-2 border border-purple-100">
                     <ShieldAlert size={18} /> Master Admin Active
                 </div>
             </div>
+
+            {error && (
+                <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                    {error}
+                </div>
+            )}
 
             {loading ? (
                 <div className="flex items-center justify-center h-64">
@@ -114,18 +182,13 @@ export default function AdminPortalScreen() {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {tenants.map((t, idx) => {
-                        let modules: string[] = [];
-                        try {
-                            modules = JSON.parse(t.modules) as string[];
-                        } catch {
-                            modules = [];
-                        }
-                        const isSuspended = t.status === "suspended";
+                    {tenants.map((tenant, idx) => {
+                        const isSuspended = tenant.status === "suspended";
+                        const isBusy = busyKey === `status:${tenant.id}` || busyKey === `modules:${tenant.id}`;
 
                         return (
                             <motion.div
-                                key={t.id}
+                                key={tenant.id}
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: idx * 0.1 }}
@@ -149,22 +212,25 @@ export default function AdminPortalScreen() {
                                             <Building2 size={24} className={isSuspended ? "text-red-500" : "text-white"} />
                                         </div>
                                         <div>
-                                            <h2 className="text-xl font-bold text-gray-900">{t.name}</h2>
+                                            <h2 className="text-xl font-bold text-gray-900">{tenant.name}</h2>
                                             <div className="flex items-center gap-2 text-xs text-gray-500 font-mono mt-1">
-                                                <Database size={12} /> {t.id}
+                                                <Database size={12} /> {tenant.id}
                                             </div>
                                         </div>
                                     </div>
 
                                     <button
-                                        onClick={() => toggleStatus(t.id)}
-                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+                                        onClick={() => toggleStatus(tenant.id)}
+                                        disabled={isBusy}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-60 ${
                                             isSuspended
                                                 ? "bg-green-100 text-green-700 hover:bg-green-200"
                                                 : "bg-red-50 text-red-600 hover:bg-red-100"
                                         }`}
                                     >
-                                        {isSuspended ? (
+                                        {isBusy ? (
+                                            <Loader2 size={18} className="animate-spin" />
+                                        ) : isSuspended ? (
                                             <>
                                                 <ToggleRight size={18} /> Reactivate
                                             </>
@@ -179,20 +245,20 @@ export default function AdminPortalScreen() {
                                 <div>
                                     <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Provisioned Modules</h3>
                                     <div className="flex flex-wrap gap-2">
-                                        {availableModules.map((mod) => {
-                                            const isActive = modules.includes(mod);
+                                        {availableModules.map((moduleName) => {
+                                            const isActive = tenant.modules.includes(moduleName);
                                             return (
                                                 <button
-                                                    key={mod}
-                                                    onClick={() => toggleModule(t.id, mod, t.modules)}
-                                                    disabled={isSuspended}
+                                                    key={moduleName}
+                                                    onClick={() => toggleModule(tenant.id, moduleName, tenant.modules)}
+                                                    disabled={isSuspended || isBusy}
                                                     className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all border ${
                                                         isActive
                                                             ? "bg-purple-50 text-purple-700 border-purple-200 shadow-sm"
                                                             : "bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100"
-                                                    } ${isSuspended ? "opacity-50 cursor-not-allowed" : ""}`}
+                                                    } ${isSuspended || isBusy ? "opacity-50 cursor-not-allowed" : ""}`}
                                                 >
-                                                    {mod}
+                                                    {moduleName}
                                                 </button>
                                             );
                                         })}

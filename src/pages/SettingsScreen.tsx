@@ -4,8 +4,12 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { COUNTRY_PRESETS, getCountryPreset, wpsBadgeText, zatcaBadgeText } from '@/services/countryConfig';
 
+const backendBaseUrl = typeof import.meta.env.VITE_API_URL === 'string'
+    ? import.meta.env.VITE_API_URL.replace(/\/$/, '')
+    : '';
+
 export default function SettingsScreen() {
-    const { user } = useAuth();
+    const { user, session } = useAuth();
     const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'company' | 'users' | 'pos' | 'branches' | 'fx' | 'comms'>('company');
     const [tenant, setTenant] = useState<any>(null);
@@ -13,6 +17,9 @@ export default function SettingsScreen() {
     const [roles, setRoles] = useState<any[]>([]);
     const [branches, setBranches] = useState<any[]>([]);
     const [inviteForm, setInviteForm] = useState({ email: '', role: '' });
+    const [inviteSaving, setInviteSaving] = useState(false);
+    const [inviteError, setInviteError] = useState('');
+    const [inviteMessage, setInviteMessage] = useState('');
     const [branchModalOpen, setBranchModalOpen] = useState(false);
     const [branchForm, setBranchForm] = useState({ id: '', name: '', address: '', phone: '', city: '' });
     const [posSound, setPosSound] = useState(localStorage.getItem('pos_sound') !== 'off');
@@ -165,16 +172,50 @@ export default function SettingsScreen() {
     };
 
     const inviteUser = async () => {
-        if (!inviteForm.email) return;
+        if (!inviteForm.email || !inviteForm.role || !user?.tenant_id || !session?.access_token) return;
+        if (!backendBaseUrl) {
+            setInviteError('VITE_API_URL is not configured. Admin invite API is disabled in this environment.');
+            return;
+        }
+        setInviteSaving(true);
+        setInviteError('');
+        setInviteMessage('');
         try {
-            const admin = (supabase.auth as any).admin;
-            if (admin?.inviteUserByEmail) {
-                await admin.inviteUserByEmail(inviteForm.email);
-            } else {
-                alert('Admin invite API not available in client, use signup link.');
+            const response = await fetch(`${backendBaseUrl}/api/v1/admin/invite-user`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`,
+                    'X-Tenant-ID': user.tenant_id,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email: inviteForm.email.trim(),
+                    role_id: inviteForm.role,
+                    redirect_to: `${window.location.origin}/login`,
+                }),
+            });
+
+            let payload: any = null;
+            try {
+                payload = await response.json();
+            } catch {
+                payload = null;
             }
-        } catch (e) {
-            alert('تعذر إرسال الدعوة');
+
+            if (!response.ok) {
+                throw new Error(payload?.detail || 'تعذر إرسال الدعوة');
+            }
+
+            const expiresAt = payload?.invitation_expires_at
+                ? new Date(payload.invitation_expires_at).toLocaleString('ar-AE')
+                : 'غير متاح';
+
+            setInviteMessage(`تم إرسال الدعوة بنجاح. تنتهي صلاحيتها في ${expiresAt}`);
+            setInviteForm({ email: '', role: '' });
+        } catch (e: any) {
+            setInviteError(e?.message ?? 'تعذر إرسال الدعوة');
+        } finally {
+            setInviteSaving(false);
         }
     };
 
@@ -217,6 +258,8 @@ export default function SettingsScreen() {
         await supabase.from('branches').update({ is_active: !b.is_active }).eq('id', b.id).eq('tenant_id', user.tenant_id);
         await reloadBranches();
     };
+
+    const canInviteUsers = user?.role === 'owner' || user?.role === 'master_admin';
 
     return (
         <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-6 pb-32">
@@ -457,14 +500,27 @@ export default function SettingsScreen() {
                 )}
                 {activeTab === 'users' && (
                     <div className="p-6 space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            <input className="border rounded-xl px-3 py-2" placeholder="إيميل الدعوة" value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} />
-                            <select className="border rounded-xl px-3 py-2" value={inviteForm.role} onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}>
-                                <option value="">اختر دور</option>
-                                {roles.map((r) => <option key={r.id} value={r.id}>{r.name || r.id}</option>)}
-                            </select>
-                            <button onClick={inviteUser} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold">دعوة مستخدم</button>
-                        </div>
+                        {canInviteUsers ? (
+                            <>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                    <input className="border rounded-xl px-3 py-2" placeholder="إيميل الدعوة" value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} />
+                                    <select className="border rounded-xl px-3 py-2" value={inviteForm.role} onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}>
+                                        <option value="">اختر دور</option>
+                                        {roles.map((r) => <option key={r.id} value={r.id}>{r.name || r.id}</option>)}
+                                    </select>
+                                    <button disabled={inviteSaving} onClick={inviteUser} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold disabled:opacity-60 flex items-center justify-center gap-2">
+                                        {inviteSaving && <Loader2 size={16} className="animate-spin" />}
+                                        {inviteSaving ? 'جاري الإرسال...' : 'دعوة مستخدم'}
+                                    </button>
+                                </div>
+                                {inviteMessage && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{inviteMessage}</div>}
+                                {inviteError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{inviteError}</div>}
+                            </>
+                        ) : (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+                                دعوات المستخدمين متاحة فقط لصاحب الحساب أو الـ Master Admin.
+                            </div>
+                        )}
                         <div className="bg-white border rounded-xl overflow-x-auto">
                             <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="p-3 text-start">الاسم</th><th className="p-3 text-start">الإيميل</th></tr></thead><tbody>{users.map((u) => <tr key={u.id} className="border-t"><td className="p-3">{u.full_name || '—'}</td><td className="p-3">{u.email}</td></tr>)}</tbody></table>
                         </div>

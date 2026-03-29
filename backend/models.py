@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, Boolean, DateTime
 from database import Base
 
@@ -215,3 +217,16 @@ class Branch(Base):
     location = Column(String, nullable=True)
     contact = Column(String, nullable=True)
     status = Column(String, default="active")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    id = Column(String, primary_key=True, index=True)
+    tenant_id = Column(String, index=True)
+    user_id = Column(String, index=True, nullable=True)
+    action = Column(String, nullable=False)
+    table_name = Column(String, nullable=False)
+    record_id = Column(String, nullable=True)
+    old_values = Column(String, nullable=True)
+    new_values = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

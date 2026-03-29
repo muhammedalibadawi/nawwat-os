@@ -31,6 +31,7 @@ const PrescriptionEditorModal: React.FC<PrescriptionEditorModalProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const [submitError, setSubmitError] = useState('');
   const [form, setForm] = useState<PharmacyPrescriptionDraftInput>({
     branch_id: branchId,
     patient_id: '',
@@ -73,6 +74,24 @@ const PrescriptionEditorModal: React.FC<PrescriptionEditorModalProps> = ({
 
   if (!open) return null;
 
+  const handleSubmit = () => {
+    setSubmitError('');
+    if (!branchId.trim()) {
+      setSubmitError('لا يمكن حفظ الوصفة بدون اختيار فرع صالح.');
+      return;
+    }
+    if (!form.patient_id.trim()) {
+      setSubmitError('اختر المريض قبل حفظ الوصفة.');
+      return;
+    }
+    const hasInvalidItem = form.items.some((item) => !item.product_id.trim() || item.prescribed_qty <= 0);
+    if (hasInvalidItem) {
+      setSubmitError('كل بند في الوصفة يجب أن يحتوي على صنف صالح وكمية أكبر من صفر.');
+      return;
+    }
+    onSubmit({ ...form, branch_id: branchId });
+  };
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" dir="rtl">
       <div className="max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-[28px] bg-white shadow-2xl">
@@ -82,6 +101,11 @@ const PrescriptionEditorModal: React.FC<PrescriptionEditorModalProps> = ({
         </div>
 
         <div className="max-h-[68vh] space-y-5 overflow-y-auto px-6 py-5">
+          {submitError ? (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+              {submitError}
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <select
               value={form.patient_id}
@@ -287,7 +311,7 @@ const PrescriptionEditorModal: React.FC<PrescriptionEditorModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => onSubmit({ ...form, branch_id: branchId })}
+              onClick={handleSubmit}
               className="rounded-2xl bg-[#071C3B] px-5 py-2.5 font-bold text-white"
             >
               حفظ الوصفة

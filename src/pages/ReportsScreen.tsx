@@ -1,9 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FileText } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+function toMonthKey(value: string | Date | null | undefined) {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function toArabicMonthLabel(monthKey: string) {
+    const [year, month] = monthKey.split('-').map(Number);
+    if (!Number.isFinite(year) || !Number.isFinite(month)) return monthKey;
+    return new Date(year, month - 1, 1).toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' });
+}
 
 function exportExcel(rows: Record<string, unknown>[], fileName: string) {
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -19,10 +32,14 @@ export default function ReportsScreen() {
     const [salesByMonth, setSalesByMonth] = useState<{ month: string; total: number }[]>([]);
     const [topProducts, setTopProducts] = useState<{ name: string; qty: number }[]>([]);
     const [contactsByType, setContactsByType] = useState<{ type: string; count: number }[]>([]);
-    const [lowStockItems, setLowStockItems] = useState<any[]>([]);
+    const [lowStockItems, setLowStockItems] = useState<
+        { id: string; name: string; reorder_point: number; available_qty: number; cost_price: number }[]
+    >([]);
 
     const [pl, setPl] = useState({ revenue: 0, expenses: 0, net: 0 });
-    const [plMonthly, setPlMonthly] = useState<{ month: string; revenue: number; expenses: number; net: number }[]>([]);
+    const [plMonthly, setPlMonthly] = useState<
+        { monthKey: string; month: string; revenue: number; expenses: number; net: number }[]
+    >([]);
     const [receivables, setReceivables] = useState<any[]>([]);
     const [inventoryVal, setInventoryVal] = useState<{ rows: any[]; total: number }>({ rows: [], total: 0 });
 
@@ -145,7 +162,7 @@ export default function ReportsScreen() {
                         .eq('invoice_type', 'sale'),
                     supabase
                         .from('stock_levels')
-                        .select('item_id, quantity')
+                        .select('item_id, quantity, reserved_qty')
                         .eq('tenant_id', user.tenant_id),
                 ]);
                 if (invRes.error) throw invRes.error;
@@ -188,13 +205,33 @@ export default function ReportsScreen() {
                     .eq('is_active', true)
                     .is('deleted_at', null);
                 if (itemErr) throw itemErr;
-                setLowStockItems(itemRows ?? []);
+                const availableQtyByItem: Record<string, number> = {};
+                (stockRes.data ?? []).forEach((stockLevel: any) => {
+                    const totalQty = Number(stockLevel.quantity ?? 0);
+                    const reservedQty = Number(stockLevel.reserved_qty ?? 0);
+                    availableQtyByItem[stockLevel.item_id] = (availableQtyByItem[stockLevel.item_id] ?? 0) + (totalQty - reservedQty);
+                });
+                setLowStockItems(
+                    (itemRows ?? [])
+                        .map((item: any) => {
+                            const reorderPoint = Number(item.reorder_point ?? 0);
+                            const availableQty = availableQtyByItem[item.id] ?? 0;
+                            return {
+                                id: item.id,
+                                name: item.name,
+                                reorder_point: reorderPoint,
+                                available_qty: availableQty,
+                                cost_price: Number(item.cost_price ?? 0),
+                            };
+                        })
+                        .filter((item) => item.reorder_point > 0 && item.available_qty <= item.reorder_point)
+                );
 
                 const revenue = (invPaid.data ?? []).reduce((s: number, r: any) => s + Number(r.total ?? 0), 0);
                 const expenseTotal = (expRes.data ?? []).reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0);
                 setPl({ revenue, expenses: expenseTotal, net: revenue - expenseTotal });
+                const monthKey = (d: Date) => toMonthKey(d) ?? '9999-12';
 
-                const monthKey = (d: Date) => d.toLocaleDateString('ar-AE', { month: 'short', year: 'numeric' });
                 const pm: Record<string, { revenue: number; expenses: number }> = {};
                 (invPaid.data ?? []).forEach((r: any) => {
                     const raw = r.issue_date || r.created_at;
@@ -209,13 +246,14 @@ export default function ReportsScreen() {
                 });
                 setPlMonthly(
                     Object.entries(pm)
-                        .map(([month, v]) => ({
-                            month,
+                        .map(([monthKey, v]) => ({
+                            monthKey,
+                            month: toArabicMonthLabel(monthKey),
                             revenue: v.revenue,
                             expenses: v.expenses,
                             net: v.revenue - v.expenses,
                         }))
-                        .sort((a, b) => a.month.localeCompare(b.month, 'ar'))
+                        .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
                 );
 
                 const { data: saleInv, error: saleErr } = await supabase
@@ -273,9 +311,7 @@ export default function ReportsScreen() {
         load();
     }, [user?.tenant_id]);
 
-    const inventoryLow = useMemo(() => {
-        return lowStockItems.filter((i) => Number(i.reorder_point ?? 0) > 0);
-    }, [lowStockItems]);
+    const inventoryLow = lowStockItems;
 
     return (
         <div className="space-y-6 p-6">
@@ -365,10 +401,12 @@ export default function ReportsScreen() {
                             </button>
                         </div>
                         <div className="space-y-2">
-                            {inventoryLow.map((r: any) => (
+                            {inventoryLow.map((r) => (
                                 <div key={r.id} className="flex justify-between text-sm">
                                     <span>{r.name || r.id}</span>
-                                    <span className="font-bold">{Number(r.reorder_point || 0).toLocaleString('ar-AE')}</span>
+                                    <span className="font-bold">
+                                        {Number(r.available_qty || 0).toLocaleString('ar-AE')} / {Number(r.reorder_point || 0).toLocaleString('ar-AE')}
+                                    </span>
                                 </div>
                             ))}
                         </div>

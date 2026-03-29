@@ -61,11 +61,24 @@ const PharmacyReceivingScreen: React.FC = () => {
 
   const handleSave = async () => {
     if (!branchId) return;
+    const validRows = rows.filter(
+      (row) =>
+        typeof row.product_id === 'string' &&
+        row.product_id.trim().length > 0 &&
+        Number(row.quantity) > 0 &&
+        Number(row.selling_price) >= 0 &&
+        Number(row.purchase_cost) >= 0
+    );
+    if (validRows.length === 0) {
+      setError('أضف سطر استلام صالح واحد على الأقل: product + quantity > 0.');
+      setSuccess('');
+      return;
+    }
     setSaving(true);
     setError('');
     setSuccess('');
     try {
-      await receivePharmacyBatches(branchId, rows, supplierId || undefined, 'استلام عبر شاشة الصيدلية');
+      await receivePharmacyBatches(branchId, validRows, supplierId || undefined, 'استلام عبر شاشة الصيدلية');
       setRows([emptyRow()]);
       setSuccess('تم حفظ الاستلام الدوائي بنجاح.');
     } catch (saveError) {

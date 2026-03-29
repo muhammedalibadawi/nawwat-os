@@ -66,7 +66,7 @@ SELECT
     sj.status,
     sj.created_at,
     sj.locked_at AS started_at,
-    sj.completed_at,
+    sj.updated_at AS completed_at,
     sj.last_error
 FROM public.sync_jobs sj
 LEFT JOIN public.channel_accounts ca ON ca.id = sj.channel_account_id;

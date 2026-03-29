@@ -1,41 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
-
-type ContactType = 'customer' | 'supplier' | 'lead' | 'employee' | 'other';
-interface ContactRow {
-    id: string;
-    name: string;
-    email: string | null;
-    phone: string | null;
-    type: ContactType;
-    notes: string | null;
-    created_at: string;
-    tenant_id: string;
-    pipeline_stage?: string | null;
-    expected_value?: number | null;
-    last_contact_at?: string | null;
-}
-
-const STAGES: { id: string; label: string }[] = [
-    { id: 'new', label: 'جديد' },
-    { id: 'qualified', label: 'مؤهل' },
-    { id: 'proposal', label: 'عرض سعر' },
-    { id: 'negotiation', label: 'تفاوض' },
-    { id: 'closed', label: 'مغلق' },
-];
+import type { CrmContactRow, CrmContactType, CrmPipelineStageId } from '../types/crm';
+import { DEFAULT_PIPELINE_STAGES } from '../types/crm';
+import {
+    deleteCrmContact,
+    fetchCrmContacts,
+    insertCrmContact,
+    insertCrmLeadOpportunity,
+    updateContactPipelineStage,
+    updateCrmContact,
+} from '../services/crmService';
 
 const CRMScreen: React.FC = () => {
     const { user } = useAuth();
     const [mainTab, setMainTab] = useState<'contacts' | 'pipeline'>('contacts');
-    const [rows, setRows] = useState<ContactRow[]>([]);
+    const [rows, setRows] = useState<CrmContactRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [form, setForm] = useState({ name: '', email: '', phone: '', type: 'customer' as ContactType });
+    const [form, setForm] = useState({ name: '', email: '', phone: '', type: 'customer' as CrmContactType });
     const [saving, setSaving] = useState(false);
 
     const [showOppModal, setShowOppModal] = useState(false);
@@ -47,15 +33,8 @@ const CRMScreen: React.FC = () => {
         setLoading(true);
         setError('');
         try {
-            const { data, error: qErr } = await supabase
-                .from('contacts')
-                .select(
-                    'id,name,email,phone,type,created_at,notes,tenant_id,pipeline_stage,expected_value,last_contact_at'
-                )
-                .eq('tenant_id', user.tenant_id)
-                .order('created_at', { ascending: false });
-            if (qErr) throw qErr;
-            setRows((data ?? []) as ContactRow[]);
+            const data = await fetchCrmContacts(user.tenant_id);
+            setRows(data);
         } catch (err: any) {
             setError(err?.message ?? 'فشل تحميل العملاء');
             setRows([]);
@@ -83,9 +62,9 @@ const CRMScreen: React.FC = () => {
         setShowModal(true);
     };
 
-    const openEdit = (r: ContactRow) => {
+    const openEdit = (r: CrmContactRow) => {
         setEditingId(r.id);
-        setForm({ name: r.name || '', email: r.email || '', phone: r.phone || '', type: (r.type || 'customer') as ContactType });
+        setForm({ name: r.name || '', email: r.email || '', phone: r.phone || '', type: (r.type || 'customer') as CrmContactType });
         setShowModal(true);
     };
 
@@ -97,18 +76,16 @@ const CRMScreen: React.FC = () => {
         setError('');
         try {
             const payload = {
-                tenant_id: user.tenant_id,
+                tenantId: user.tenant_id,
                 name: form.name.trim(),
                 email: form.email.trim() || null,
                 phone: form.phone.trim() || null,
                 type: form.type,
             };
             if (editingId) {
-                const { error: updErr } = await supabase.from('contacts').update(payload).eq('id', editingId).eq('tenant_id', user.tenant_id);
-                if (updErr) throw updErr;
+                await updateCrmContact(user.tenant_id, editingId, payload);
             } else {
-                const { error: insErr } = await supabase.from('contacts').insert(payload);
-                if (insErr) throw insErr;
+                await insertCrmContact(payload);
             }
             setShowModal(false);
             await loadContacts();
@@ -125,16 +102,13 @@ const CRMScreen: React.FC = () => {
         if (!oppForm.name.trim()) return;
         setSaving(true);
         try {
-            const { error } = await supabase.from('contacts').insert({
-                tenant_id: user.tenant_id,
+            await insertCrmLeadOpportunity({
+                tenantId: user.tenant_id,
                 name: oppForm.name.trim(),
                 email: oppForm.email.trim() || null,
-                type: 'lead',
-                pipeline_stage: oppForm.stage,
-                expected_value: oppForm.expected_value ? Number(oppForm.expected_value) : null,
-                last_contact_at: new Date().toISOString(),
+                stage: oppForm.stage as CrmPipelineStageId,
+                expectedValue: oppForm.expected_value ? Number(oppForm.expected_value) : null,
             });
-            if (error) throw error;
             setShowOppModal(false);
             setOppForm({ name: '', email: '', expected_value: '', stage: 'new' });
             await loadContacts();
@@ -152,12 +126,7 @@ const CRMScreen: React.FC = () => {
         if (!dragId || !user?.tenant_id) return;
         const prev = rows.find((r) => r.id === dragId);
         try {
-            const { error } = await supabase
-                .from('contacts')
-                .update({ pipeline_stage: stageId, last_contact_at: new Date().toISOString() })
-                .eq('id', dragId)
-                .eq('tenant_id', user.tenant_id);
-            if (error) throw error;
+            await updateContactPipelineStage(user.tenant_id, dragId, stageId as CrmPipelineStageId);
             if (stageId === 'closed' && prev?.pipeline_stage !== 'closed') {
                 confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
             }
@@ -172,8 +141,7 @@ const CRMScreen: React.FC = () => {
         if (!user?.tenant_id) return;
         if (!window.confirm('تأكيد حذف العميل؟')) return;
         try {
-            const { error: delErr } = await supabase.from('contacts').delete().eq('id', id).eq('tenant_id', user.tenant_id);
-            if (delErr) throw delErr;
+            await deleteCrmContact(user.tenant_id, id);
             await loadContacts();
         } catch (err: any) {
             setError(err?.message ?? 'فشل حذف العميل');
@@ -272,7 +240,7 @@ const CRMScreen: React.FC = () => {
                     </div>
                     {error && <div className="text-red-600 font-bold">{error}</div>}
                     <div className="flex gap-3 overflow-x-auto pb-4">
-                        {STAGES.map((col) => (
+                        {DEFAULT_PIPELINE_STAGES.map((col) => (
                             <div
                                 key={col.id}
                                 className="min-w-[220px] flex-1 bg-gray-50 rounded-xl border border-gray-200 p-3"
@@ -318,7 +286,7 @@ const CRMScreen: React.FC = () => {
                         <input className="w-full px-3 py-2 border rounded-lg" placeholder="الاسم" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                         <input className="w-full px-3 py-2 border rounded-lg" placeholder="الإيميل" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                         <input className="w-full px-3 py-2 border rounded-lg" placeholder="الهاتف" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                        <select className="w-full px-3 py-2 border rounded-lg" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as ContactType })}>
+                        <select className="w-full px-3 py-2 border rounded-lg" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as CrmContactType })}>
                             <option value="customer">عميل</option>
                             <option value="supplier">مورد</option>
                             <option value="lead">عميل محتمل</option>
@@ -365,7 +333,7 @@ const CRMScreen: React.FC = () => {
                             value={oppForm.stage}
                             onChange={(e) => setOppForm({ ...oppForm, stage: e.target.value })}
                         >
-                            {STAGES.map((s) => (
+                            {DEFAULT_PIPELINE_STAGES.map((s) => (
                                 <option key={s.id} value={s.id}>
                                     {s.label}
                                 </option>
